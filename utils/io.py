@@ -6,6 +6,8 @@ import pyzipper
 from datetime import timedelta
 from rich.console import Console
 from ui.theming import get_style
+from ui import messages as ui
+from ui.menu import radio_grid_menu
 
 console = Console()
 
@@ -55,11 +57,35 @@ def clear_resume(zip_path, wordlist_path):
 # Ekstraksi
 # =========================
 def extract_with_password(zip_file_path, password):
+    # nama folder hasil ekstrakan
     base = os.path.splitext(os.path.basename(zip_file_path))[0]
-    out_dir = os.path.join(os.getcwd(), base)
+    out_dir = os.path.join(os.getcwd(), "OutputExtract", base)
+
+    # cek kalau sudah ada
+    if os.path.exists(out_dir) and os.listdir(out_dir):
+        ui.warning(f"📂 Folder output sudah ada: {out_dir}")
+        action = radio_grid_menu("Folder sudah ada, pilih tindakan:",
+                                ["Timpa", "Ganti Nama", "Exit!"], cols=3).lower()
+
+        if action.startswith("exit"):
+            ui.info("❌ Ekstraksi dibatalkan user.")
+            return None
+        elif action == "ganti nama":
+            suffix = 1
+            new_out_dir = f"{out_dir}_{suffix}"
+            while os.path.exists(new_out_dir):
+                suffix += 1
+                new_out_dir = f"{out_dir}_{suffix}"
+            out_dir = new_out_dir
+            ui.info(f"📂 Output diganti ke: {out_dir}")
+        else:
+            ui.attention("⚠ Folder lama akan ditimpa.")
+
     os.makedirs(out_dir, exist_ok=True)
+
     with pyzipper.AESZipFile(zip_file_path) as zf:
         zf.extractall(path=out_dir, pwd=password.encode("utf-8"))
+
     return out_dir
 
 # =========================
