@@ -446,7 +446,7 @@ def brute_python_fast_v11(
     last_count = tested
 
     total_for_dash = total_candidates if total_candidates is not None else None
-    with Dashboard(total=total_for_dash, label="Python brute") as dash:
+    with Dashboard(zip_file, wordlist, processes, total_for_dash, start_at=start_chunk, label="Python Engine") as dash:
         while True:
             # ambil hasil worker
             try:
@@ -460,8 +460,8 @@ def brute_python_fast_v11(
                     found_pw = res.password
                     found_event.set()
 
-            # update dashboard (completed)
-            dash.update(completed=min(tested, total_candidates) if total_candidates is not None else tested)
+            # update dashboard (tested)
+            dash.update(tested=min(tested, total_candidates) if total_candidates is not None else tested)
 
             # adaptive tuning setiap ADJUST_WIN_SEC
             now = _now()
