@@ -1,5 +1,5 @@
 # engines/john_engine.py
-# BRUTEZIPER – John Engine v11
+# BRUTEZIPER – John Engine v11 (UI Refactor)
 # -------------------------------------------------------------
 # Fitur:
 # - Panggil John the Ripper (JtR) via subprocess.
@@ -8,6 +8,7 @@
 # - Konsisten return dict: {password, tested, elapsed, rate, log_file, engine, error}
 # - Logging ke file.
 # - Integrasi dengan zip2john otomatis (buat hash dari ZIP).
+# - UI: panels.py & dashboard.py (progress + CPU/RAM).
 # -------------------------------------------------------------
 
 import os
@@ -16,19 +17,20 @@ import time
 from datetime import datetime
 from typing import Optional, Dict
 
-from rich.console import Console
-from rich.panel import Panel
-
-console = Console()
+# === UI components (baru) ===
+from ui.panels import panel_info, panel_success, panel_warning, panel_error, panel_stage
+from ui.dashboard import Dashboard
 
 ENGINE_NAME = "john"
 DEFAULT_LOG_DIR = os.path.join(os.getcwd(), "logs")
 os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
 
+
 def _mk_log_file(zip_file: str) -> str:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = os.path.splitext(os.path.basename(zip_file))[0]
     return os.path.join(DEFAULT_LOG_DIR, f"john_{base}_{stamp}.log")
+
 
 class Logger:
     def __init__(self, log_path: str):
@@ -46,45 +48,78 @@ class Logger:
         except Exception:
             pass
 
+
 # ------------------------------ Helper --------------------------------------
 
-def _run_cmd(cmd: str, cwd: Optional[str] = None, live: bool = True, logger: Optional[Logger] = None) -> int:
+def _run_cmd(
+    cmd: str,
+    cwd: Optional[str] = None,
+    live: bool = True,
+    logger: Optional[Logger] = None,
+    use_dashboard: bool = True,
+) -> int:
     """
     Jalankan perintah shell. Jika live=True, stream output ke console.
+    Jika use_dashboard=True, tampilkan Dashboard (spinner + CPU/RAM).
     """
-    console.print(Panel(f"[cyan]$ {cmd}[/]", border_style="cyan"))
+    panel_info(f"$ {cmd}")
     if logger:
         logger.write(f"RUN {cmd}")
+
     proc = subprocess.Popen(
-        cmd, shell=True, cwd=cwd,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1
+        cmd,
+        shell=True,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
-    if live:
-        for line in proc.stdout:
-            console.print(line.rstrip())
-            if logger:
-                logger.write(line.rstrip())
-    else:
+
+    if not live:
         out, _ = proc.communicate()
         if out and logger:
             for ln in out.splitlines():
                 logger.write(ln)
-    return proc.wait()
+        return proc.wait()
+
+    # Live mode + dashboard (tanpa total karena John tidak expose total cand.)
+    if use_dashboard:
+        with Dashboard(total=None, label="John the Ripper") as dash:
+            for line in proc.stdout:
+                s = line.rstrip("\n")
+                # tampilkan baris John apa adanya (tidak pakai Panel agar cepat)
+                # (kalau mau, bisa filter baris status saja)
+                if s:
+                    # jangan spam panel; cukup log ke file
+                    if logger:
+                        logger.write(s)
+                # tick dashboard supaya CPU/RAM tetap refresh
+                dash.update()
+            ret = proc.wait()
+            return ret
+    else:
+        # tanpa dashboard
+        for line in proc.stdout:
+            s = line.rstrip("\n")
+            if logger and s:
+                logger.write(s)
+        return proc.wait()
+
 
 def _zip2john(zip_file: str, john_path: str, logger: Logger) -> Optional[str]:
     """
     Konversi ZIP ke hash file untuk John.
     """
-    john_bin = os.path.join(john_path, "john")
     zip2john_bin = os.path.join(john_path, "zip2john")
     hash_file = os.path.splitext(os.path.basename(zip_file))[0] + ".hash"
 
     cmd = f"{zip2john_bin} '{zip_file}' > '{hash_file}'"
-    ret = _run_cmd(cmd, cwd=john_path, live=False, logger=logger)
+    ret = _run_cmd(cmd, cwd=john_path, live=False, logger=logger, use_dashboard=False)
     if ret != 0 or not os.path.exists(os.path.join(john_path, hash_file)):
         return None
     return os.path.join(john_path, hash_file)
+
 
 def _john_show(hash_file: str, john_path: str, logger: Logger) -> Optional[str]:
     """
@@ -105,13 +140,16 @@ def _john_show(hash_file: str, john_path: str, logger: Logger) -> Optional[str]:
             logger.write(f"ERROR john_show: {e}")
     return None
 
+
 # ------------------------------ Engine Utama --------------------------------
 
-def brute_john(zip_file: str,
-            wordlist: Optional[str] = None,
-            john_path: str = "~/john/run",
-            live: bool = True,
-            resume: bool = True) -> Dict:
+def brute_john(
+    zip_file: str,
+    wordlist: Optional[str] = None,
+    john_path: str = "~/john/run",
+    live: bool = True,
+    resume: bool = True,
+) -> Dict:
     """
     Jalankan John the Ripper untuk crack ZIP.
     - Jika wordlist != None → mode wordlist.
@@ -124,18 +162,18 @@ def brute_john(zip_file: str,
     log_path = _mk_log_file(zip_file)
     logger = Logger(log_path)
 
-    console.print(Panel.fit(
+    panel_stage(
         f"[bold magenta]BRUTEZIPER v11 – John Engine[/]\n"
         f"[white]📦 ZIP :[/] {os.path.basename(zip_file)}\n"
         f"[white]📂 Mode:[/] {'Wordlist' if wordlist else 'Incremental'}",
-        border_style="magenta"
-    ))
+        color="magenta",
+    )
 
     # Buat hash file
     hash_file = _zip2john(zip_file, john_path, logger)
     if not hash_file:
         msg = "Gagal membuat hash file dengan zip2john."
-        console.print(Panel(msg, border_style="red"))
+        panel_error(msg)
         logger.write(f"ERROR {msg}")
         logger.close()
         return {
@@ -150,7 +188,8 @@ def brute_john(zip_file: str,
 
     # Tentukan command
     john_bin = os.path.join(john_path, "john")
-    if resume and os.path.exists(os.path.join(john_path, "restore")):
+    restore_file = os.path.join(john_path, "restore")  # mengikuti skrip sebelumnya
+    if resume and os.path.exists(restore_file):
         cmd = f"{john_bin} --restore"
     else:
         if wordlist:
@@ -159,7 +198,7 @@ def brute_john(zip_file: str,
             cmd = f"{john_bin} --format=zip --incremental '{hash_file}'"
 
     # Jalankan John
-    ret = _run_cmd(cmd, cwd=john_path, live=live, logger=logger)
+    ret = _run_cmd(cmd, cwd=john_path, live=live, logger=logger, use_dashboard=True)
 
     # Ambil hasil
     password = _john_show(hash_file, john_path, logger)
@@ -169,9 +208,9 @@ def brute_john(zip_file: str,
     logger.close()
 
     if password:
-        console.print(Panel(f"[green]✅ Password ditemukan oleh John: [bold]{password}[/][/]", border_style="green"))
+        panel_success(f"Password ditemukan oleh John: {password}")
     else:
-        console.print(Panel("[yellow]❌ Password tidak ditemukan oleh John.[/]", border_style="yellow"))
+        panel_warning("Password tidak ditemukan oleh John.")
 
     return {
         "password": password,
@@ -180,14 +219,16 @@ def brute_john(zip_file: str,
         "rate": 0.0,
         "log_file": log_path,
         "engine": ENGINE_NAME,
-        "error": None if ret == 0 else f"John exited {ret}"
+        "error": None if ret == 0 else f"John exited {ret}",
     }
+
 
 # ------------------------------ CLI Quick Test ------------------------------
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="BRUTEZIPER v11 - John Engine")
+
+    parser = argparse.ArgumentParser(description="BRUTEZIPER v11 - John Engine (UI Refactor)")
     parser.add_argument("zip", help="Path ke file .zip terenkripsi")
     parser.add_argument("--wordlist", help="Path ke file wordlist (opsional)", default=None)
     parser.add_argument("--john-path", help="Path ke folder run/ John", default="~/john/run")
@@ -199,6 +240,6 @@ if __name__ == "__main__":
         wordlist=args.wordlist,
         john_path=args.john_path,
         live=True,
-        resume=(not args.no_resume)
+        resume=(not args.no_resume),
     )
-    console.print(res)
+    print(res)

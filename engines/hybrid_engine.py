@@ -1,5 +1,5 @@
 # engines/hybrid_engine.py
-# BRUTEZIPER – Hybrid Engine v11
+# BRUTEZIPER – Hybrid Engine v11 (UI Refactor)
 # -------------------------------------------------------------
 # Fitur:
 # - Tahap 1: Python wordlist
@@ -8,6 +8,7 @@
 # - Konsisten return dict
 # - Resume canggih (Python ckpt + John --restore)
 # - Logging ke file
+# - UI konsisten pakai panels + dashboard
 # -------------------------------------------------------------
 
 import os
@@ -15,14 +16,12 @@ import time
 from datetime import datetime
 from typing import Optional, Dict
 
-from rich.console import Console
-from rich.panel import Panel
-
 # Import engine lain
 from engines.python_engine import brute_python_fast_v11, recommend_engine_for
 from engines.john_engine import brute_john
 
-console = Console()
+from ui.panels import panel_info, panel_success, panel_warning, panel_error, panel_stage
+from ui.dashboard import Dashboard
 
 ENGINE_NAME = "hybrid"
 DEFAULT_LOG_DIR = os.path.join(os.getcwd(), "logs")
@@ -66,16 +65,16 @@ def brute_hybrid(zip_file: str,
     log_path = _mk_log_file(zip_file)
     logger = Logger(log_path)
 
-    console.print(Panel.fit(
+    panel_stage(
         f"[bold cyan]BRUTEZIPER v11 – Hybrid Engine[/]\n"
         f"[white]📦 ZIP :[/] {os.path.basename(zip_file)}\n"
         f"[white]📝 Wordlist:[/] {os.path.basename(wordlist)}",
-        border_style="cyan"
-    ))
+        color="cyan"
+    )
     logger.write(f"Hybrid start zip={zip_file} wordlist={wordlist}")
 
     # === Tahap 1: Python wordlist ===
-    console.print(Panel("[cyan]🧪 Tahap 1: Python (wordlist)[/]", border_style="cyan"))
+    panel_stage("🧪 Tahap 1: Python (wordlist) — jika gagal lanjut John incremental", color="cyan")
     res_python = brute_python_fast_v11(
         zip_file,
         wordlist,
@@ -99,7 +98,7 @@ def brute_hybrid(zip_file: str,
         }
 
     # === Tahap 2: John incremental ===
-    console.print(Panel("[yellow]❌ Wordlist gagal. Lanjut ke John incremental...[/]", border_style="yellow"))
+    panel_warning("❌ Wordlist gagal. Lanjut ke John incremental...")
     logger.write("Python failed, switching to John incremental")
 
     res_john = brute_john(
@@ -140,7 +139,7 @@ def brute_auto(zip_file: str,
     Auto-select engine (python / john / hybrid) berdasarkan heuristik wordlist & CPU.
     """
     choice = recommend_engine_for(wordlist)
-    console.print(Panel(f"[blue]🤖 Auto memilih engine: {choice}[/]", border_style="blue"))
+    panel_info(f"🤖 Auto memilih engine: {choice}")
 
     if choice == "python":
         return brute_python_fast_v11(zip_file, wordlist, processes, start_chunk, resume)
@@ -179,4 +178,4 @@ if __name__ == "__main__":
             resume=(not args.no_resume),
             john_path=args.john_path
         )
-    console.print(res)
+    print(res)
