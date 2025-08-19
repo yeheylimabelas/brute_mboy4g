@@ -5,6 +5,7 @@ import psutil
 import pyzipper
 from datetime import timedelta
 from rich.console import Console
+from ui.theming import get_style
 
 console = Console()
 
@@ -40,7 +41,7 @@ def save_resume(zip_path, wordlist_path, last_index):
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception as e:
-        console.print(f"[yellow]⚠ Gagal menyimpan resume: {e}[/]")
+        console.print(f"[{get_style('warning')}]⚠ Gagal menyimpan resume: {e}[/]")
 
 def clear_resume(zip_path, wordlist_path):
     try:

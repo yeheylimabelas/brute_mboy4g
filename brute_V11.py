@@ -13,6 +13,7 @@ from utils.io import auto_select_engine
 from ui.menu import radio_grid_menu, pick_file_with_ranger
 from ui.theming import set_theme, _THEMES
 from ui import messages as ui
+from ui.theming import get_style
 
 console = Console()
 
@@ -22,11 +23,12 @@ console = Console()
 def banner():
     os.system("cls" if os.name == "nt" else "clear")
     ui.info(
-        "[bold magenta]BRUTEZIPER v11[/]\n"
-        "By [bold bright_blue]MBOY4G[/]\n"
-        "As [bold bright_blue]Ryven Novyr Asmadeus[/]\n"
-        "Mode Python · John · John Live · Hybrid",
-        title="[cyan]SCRIPT")
+        f"[{get_style('title')}]BRUTEZIPER v11[/]\n"
+        f"By [{get_style('info')}]MBOY4G[/]\n"
+        f"As [{get_style('info')}]Ryven Novyr Asmadeus[/]\n"
+        f"Mode Python · John · John Live · Hybrid",
+        title=f"[{get_style('panel')}]SCRIPT"
+    )
 
 # =========================
 # CLI Usage
@@ -100,7 +102,7 @@ def interactive_flow():
             sys.exit(0)
 
         if engine == "theme":
-            # tampilkan daftar theme dari THEMES dict
+            # tampilkan daftar theme
             themes = list(_THEMES.keys())
             chosen = radio_grid_menu("Pilih Theme", themes, cols=2).lower()
             try:
@@ -108,69 +110,72 @@ def interactive_flow():
                 ui.success(f"🎨 Theme berhasil diganti ke: {chosen}")
             except Exception as e:
                 ui.error(str(e))
-            # setelah selesai, loop balik ke menu utama
+            # khusus theme → ulang lagi ke menu utama
             continue
 
-        # pilih ZIP
-        zip_file = pick_file_with_ranger("Pilih file ZIP")
-        if not zip_file or not zip_file.lower().endswith(".zip") or not os.path.isfile(zip_file):
-            ui.error("❌ File ZIP tidak valid/dipilih.")
+        # kalau sampai sini, berarti engine (bukan Theme/Exit)
+        # → jalankan engine sekali, lalu keluar
+        break
+
+    # pilih ZIP
+    zip_file = pick_file_with_ranger("Pilih file ZIP")
+    if not zip_file or not zip_file.lower().endswith(".zip") or not os.path.isfile(zip_file):
+        ui.error("❌ File ZIP tidak valid/dipilih.")
+        sys.exit(1)
+
+    if engine == "python":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid.")
             sys.exit(1)
+        brute_python_fast(zip_file, wordlist)
 
-        if engine == "python":
+    elif engine == "john":
+        mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
+        if mode.startswith("exit!"):
+            ui.warning("⚠️ Dibatalkan.")
+            sys.exit(0)
+        if mode == "wordlist":
             wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
             if not wordlist or not wordlist.lower().endswith(".txt"):
                 ui.error("❌ Wordlist harus file .txt yang valid.")
                 sys.exit(1)
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
+        else:
+            brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False)
+
+    elif engine == "john live":
+        mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
+        if mode.startswith("exit!"):
+            ui.warning("⚠️ Dibatalkan.")
+            sys.exit(0)
+        if mode == "wordlist":
+            wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+            if not wordlist or not wordlist.lower().endswith(".txt"):
+                ui.error("❌ Wordlist harus file .txt yang valid.")
+                sys.exit(1)
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=True)
+        else:
+            brute_john(zip_file, wordlist=None, john_path="~/john/run", live=True)
+
+    elif engine == "hybrid":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt) [untuk tahap Python]")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid.")
+            sys.exit(1)
+        brute_hybrid(zip_file, wordlist)
+
+    elif engine == "auto":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid.")
+            sys.exit(1)
+        selected = auto_select_engine(zip_file, wordlist)
+        ui.info(f"🤖 Auto-select memilih engine: {selected.upper()}")
+        if selected == "python":
             brute_python_fast(zip_file, wordlist)
-
-        elif engine == "john":
-            mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
-            if mode.startswith("exit!"):
-                ui.warning("⚠️ Dibatalkan.")
-                sys.exit(0)
-            if mode == "wordlist":
-                wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
-                if not wordlist or not wordlist.lower().endswith(".txt"):
-                    ui.error("❌ Wordlist harus file .txt yang valid.")
-                    sys.exit(1)
-                brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
-            else:
-                brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False)
-
-        elif engine == "john live":
-            mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
-            if mode.startswith("exit!"):
-                ui.warning("⚠️ Dibatalkan.")
-                sys.exit(0)
-            if mode == "wordlist":
-                wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
-                if not wordlist or not wordlist.lower().endswith(".txt"):
-                    ui.error("❌ Wordlist harus file .txt yang valid.")
-                    sys.exit(1)
-                brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=True)
-            else:
-                brute_john(zip_file, wordlist=None, john_path="~/john/run", live=True)
-
-        elif engine == "hybrid":
-            wordlist = pick_file_with_ranger("Pilih file wordlist (.txt) [untuk tahap Python]")
-            if not wordlist or not wordlist.lower().endswith(".txt"):
-                ui.error("❌ Wordlist harus file .txt yang valid.")
-                sys.exit(1)
-            brute_hybrid(zip_file, wordlist)
-
-        elif engine == "auto":
-            wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
-            if not wordlist or not wordlist.lower().endswith(".txt"):
-                ui.error("❌ Wordlist harus file .txt yang valid.")
-                sys.exit(1)
-            selected = auto_select_engine(zip_file, wordlist)
-            ui.info(f"🤖 Auto-select memilih engine: {selected.upper()}")
-            if selected == "python":
-                brute_python_fast(zip_file, wordlist)
-            else:
-                brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
-
+        else:
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
 
 # =========================
 # MAIN

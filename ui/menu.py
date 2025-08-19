@@ -5,6 +5,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.live import Live
 from ui import messages as ui
+from ui.theming import get_style
 
 console = Console()
 
@@ -21,10 +22,20 @@ def radio_grid_menu(title, options, default=0, cols=2, border_style="magenta"):
                 pos = options.index(opt)
                 if pos == idx:
                     mark = "[*]"
-                    style = "cyan" if opt.lower() != "exit!" else "red"
+                    if opt.lower() == "exit!":
+                        style = get_style("error")
+                    elif opt.lower() == "theme":
+                        style = get_style("warning")
+                    else:
+                        style = get_style("info")
                     cells.append(f"[bold {style}]{mark} {opt}[/]")
                 else:
-                    style = "dim red" if opt.lower() == "exit!" else "dim"
+                    if opt.lower() == "exit!":
+                        style = f"dim {get_style('error')}"
+                    elif opt.lower() == "theme":
+                        style = f"dim {get_style('warning')}"
+                    else:
+                        style = "dim"
                     cells.append(f"[{style}][ ] {opt}[/]")
             while len(cells) < cols:
                 cells.append("")
@@ -65,18 +76,18 @@ def pick_file_with_ranger(prompt_title="Pilih file"):
         ui.error("❌ Ranger tidak ditemukan.")
         return None
 
-    console.print("[yellow]📑 Ranger selesai. Cek file pilihan...[/]")
+    console.print(f"[{get_style('warning')}]📑 Ranger selesai. Cek file pilihan...[/]")
     if os.path.exists(tmpfile):
         with open(tmpfile, "r") as f:
             path = f.readline().strip()
         try: os.remove(tmpfile)
         except Exception: pass
         if path:
-            console.print(f"[green]✅ Terpilih: {path}[/]")
+            console.print(f"[{get_style('success')}]✅ Terpilih: {path}[/]")
             return path
         else:
-            console.print("[red]⚠ Tidak ada yang dipilih.[/]")
+            console.print(f"[{get_style('error')}]⚠ Tidak ada yang dipilih.[/]")
             return None
     else:
-        console.print("[red]❌ File hasil pilihan tidak ditemukan.[/]")
+        console.print(f"[{get_style('error')}]❌ File hasil pilihan tidak ditemukan.[/]")
         return None

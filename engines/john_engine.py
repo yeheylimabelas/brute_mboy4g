@@ -6,6 +6,7 @@ from .base import BaseEngine
 from ui import messages as ui
 from ui import dashboard
 from ui.menu import radio_grid_menu, pick_file_with_ranger
+from ui.theming import get_style
 from utils.io import extract_with_password
 
 
@@ -125,10 +126,10 @@ class JohnEngine(BaseEngine):
         else:
             ui.error(
                 f"❌ Password tidak ditemukan oleh John\n"
-                f"[white]Format yang dicoba: {', '.join(tried)}[/]\n"
-                f"[cyan]⏳ Total waktu: {elapsed:.2f} detik[/]\n"
-                f"[cyan]Tips: coba wordlist berbeda atau jalankan manual John untuk verifikasi[/]",
-                title="JOHN ENGINE"
+                f"[{get_style('white')}]Format yang dicoba: {', '.join(tried)}[/]\n"
+                f"[{get_style('info')}]⏳ Total waktu: {elapsed:.2f} detik[/]\n"
+                f"[{get_style('info')}]Tips: coba wordlist berbeda atau jalankan manual John untuk verifikasi[/]",
+                title=f"[{get_style('error')}]JOHN ENGINE"
             )
             # Retry menu
             mode = radio_grid_menu("Mau Coba Lagi?", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
