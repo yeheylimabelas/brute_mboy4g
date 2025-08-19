@@ -8,7 +8,7 @@ from rich.panel import Panel
 
 from engines.python_engine import brute_python_fast
 from engines.john_engine import brute_john
-from engines.hybrid import brute_hybrid
+from engines.hybrid_engine import brute_hybrid
 from ui.menu import radio_grid_menu, pick_file_with_ranger
 
 console = Console()
