@@ -2,8 +2,8 @@ import os, time, subprocess
 from rich.console import Console
 from rich.panel import Panel
 
-from bruteziper.utils.io import extract_with_password
-from bruteziper.ui import messages as ui
+from utils.io import extract_with_password
+from ui import messages as ui
 
 console = Console()
 

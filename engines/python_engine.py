@@ -5,15 +5,15 @@ from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from rich.console import Console
 from rich.panel import Panel
 from rich.live import Live
-from bruteziper.ui import messages as ui
+from ui import messages as ui
 
 # import helper dari utils & ui
-from bruteziper.utils.io import (
+from utils.io import (
     count_lines_fast, wordlist_stream,
     load_resume, save_resume, clear_resume,
     extract_with_password
 )
-from bruteziper.ui.dashboard import render_dashboard
+from ui.dashboard import render_dashboard
 
 console = Console()
 

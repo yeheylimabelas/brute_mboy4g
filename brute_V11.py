@@ -6,10 +6,10 @@ import sys, os
 from rich.console import Console
 from rich.panel import Panel
 
-from bruteziper.engines.python_engine import brute_python_fast
-from bruteziper.engines.john_engine import brute_john
-from bruteziper.engines.hybrid import brute_hybrid
-from bruteziper.ui.menu import radio_grid_menu, pick_file_with_ranger
+from engines.python_engine import brute_python_fast
+from engines.john_engine import brute_john
+from engines.hybrid import brute_hybrid
+from ui.menu import radio_grid_menu, pick_file_with_ranger
 
 console = Console()
 

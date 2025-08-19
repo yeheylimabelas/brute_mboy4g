@@ -1,9 +1,9 @@
 from rich.console import Console
 from rich.panel import Panel
 
-from bruteziper.engines.python_engine import brute_python_fast
-from bruteziper.engines.john_engine import brute_john
-from bruteziper.ui import messages as ui
+from python_engine import brute_python_fast
+from john_engine import brute_john
+from ui import messages as ui
 
 console = Console()
 
