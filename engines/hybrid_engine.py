@@ -1,8 +1,8 @@
 from rich.console import Console
 from rich.panel import Panel
 
-from python_engine import brute_python_fast
-from john_engine import brute_john
+from engines.python_engine import brute_python_fast
+from engines.john_engine import brute_john
 from ui import messages as ui
 
 console = Console()
