@@ -14,6 +14,7 @@ from utils.io import (
     load_resume, save_resume, clear_resume,
     extract_with_password
 )
+import multiprocessing
 
 # worker untuk satu chunk
 def _worker_try_chunk(zip_path, pw_chunk, stop_event):
@@ -39,14 +40,15 @@ def _worker_try_chunk(zip_path, pw_chunk, stop_event):
 
 
 class PythonEngine(BaseEngine):
-    def __init__(self, zip_file, wordlist, processes=4, start_at=0,
-                 start_chunk=1000, resume=True, ui_refresh=0.5,
+    def __init__(self, zip_file, wordlist, processes=None, start_at=0,
+                 adaptive_chunk=1000, resume=True, ui_refresh=0.5,
                  checkpoint_every=50_000):
-        super().__init__(zip_file, wordlist)
+        super().__init__("python", zip_file, wordlist)
 
-        self.processes = processes
+        # Default worker kalau None → jumlah CPU
+        self.processes = processes or multiprocessing.cpu_count()
         self.start_at = start_at
-        self.start_chunk = start_chunk   # ✅ konsisten
+        self.adaptive_chunk = adaptive_chunk
         self.resume = resume
         self.ui_refresh = ui_refresh
         self.checkpoint_every = checkpoint_every
@@ -56,7 +58,6 @@ class PythonEngine(BaseEngine):
         self.tested = 0
         self.in_flight = 0
 
-        # events
         self.stop_event = threading.Event()
         self.found_event = threading.Event()
 
