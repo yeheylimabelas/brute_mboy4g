@@ -25,50 +25,36 @@ def get_zip_metadata(zip_file: str) -> Dict[str, Any]:
     """
     Kembalikan metadata dasar zip untuk heuristik:
     {
+        file: str,
+        size: int,
+        entries: int,
         encrypted: bool,
         aes: bool,
-        file_count: int,
         total_uncompressed: int,
         total_compressed: int
     }
     """
     if not os.path.exists(zip_file):
-        raise FileNotFoundError(f"ZIP tidak ditemukan: {zip_file}")
+        return {"error": f"ZIP tidak ditemukan: {zip_file}"}
 
-    with zipfile.ZipFile(zip_file, "r") as zf:
-        infos = zf.infolist()
-
-        encrypted = any((i.flag_bits & 0x1) == 0x1 for i in infos) if infos else False
-        aes = any(_zipinfo_has_aes(i) for i in infos) if infos else False
-
-        total_uncompressed = sum(getattr(i, "file_size", 0) for i in infos)
-        total_compressed = sum(getattr(i, "compress_size", 0) for i in infos)
-
-        return {
-            "encrypted": bool(encrypted),
-            "aes": bool(aes),
-            "file_count": len(infos),
-            "total_uncompressed": int(total_uncompressed),
-            "total_compressed": int(total_compressed),
-        }
-
-def analyze_zip(zip_file_path: str) -> dict:
-    meta = {
-        "file": os.path.basename(zip_file_path),   # ✅ tambahkan nama file
-        "encrypted": False,
-        "files": [],
-        "compression": {},
-        "comment": None,
-    }
     try:
-        with pyzipper.AESZipFile(zip_file_path) as zf:
-            meta["comment"] = zf.comment.decode("utf-8", errors="ignore") or None
-            for info in zf.infolist():
-                meta["files"].append(info.filename)
-                if info.flag_bits & 0x1:
-                    meta["encrypted"] = True
-                comp = info.compress_type
-                meta["compression"][comp] = meta["compression"].get(comp, 0) + 1
+        with zipfile.ZipFile(zip_file, "r") as zf:
+            infos = zf.infolist()
+
+            encrypted = any((i.flag_bits & 0x1) == 0x1 for i in infos) if infos else False
+            aes = any(_zipinfo_has_aes(i) for i in infos) if infos else False
+
+            total_uncompressed = sum(getattr(i, "file_size", 0) for i in infos)
+            total_compressed = sum(getattr(i, "compress_size", 0) for i in infos)
+
+            return {
+                "file": zip_file,
+                "size": os.path.getsize(zip_file),
+                "entries": len(infos),
+                "encrypted": bool(encrypted),
+                "aes": bool(aes),
+                "total_uncompressed": int(total_uncompressed),
+                "total_compressed": int(total_compressed),
+            }
     except Exception as e:
-        meta["error"] = str(e)
-    return meta
+        return {"error": str(e)}
