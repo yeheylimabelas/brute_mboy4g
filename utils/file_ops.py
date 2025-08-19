@@ -1,37 +1,55 @@
 # utils/file_ops.py
-# -------------------------------------------------------------
-# Utility functions untuk operasi file
-# - validasi ekstensi
-# - hitung baris wordlist
-# - iterasi password dari wordlist
-# - path helper (expanduser)
-# -------------------------------------------------------------
+# ----------------------------------------------------
+# Helper file utilities:
+# - File picker pakai ranger
+# - Cek ekstensi (ZIP / TXT)
+# - Path expand (absolute + tilde)
+# ----------------------------------------------------
 
 import os
-from typing import Generator
+import subprocess
 
-def is_txt(path: str) -> bool:
-    return path.lower().endswith(".txt")
-
-def is_zip(path: str) -> bool:
-    return path.lower().endswith(".zip")
 
 def expand(path: str) -> str:
-    return os.path.expanduser(path)
+    """Expand ~ dan jadikan path absolut"""
+    return os.path.abspath(os.path.expanduser(path))
 
-def count_lines(path: str) -> int:
-    """Hitung jumlah baris pada file wordlist"""
-    with open(path, "rb") as f:
-        return sum(1 for _ in f)
 
-def yield_passwords(wordlist: str, start_index: int = 0) -> Generator[str, None, None]:
-    """Generator password dari wordlist mulai dari index tertentu"""
-    with open(wordlist, "r", encoding="utf-8", errors="ignore") as f:
-        for idx, line in enumerate(f):
-            if idx < start_index:
-                continue
-            yield line.strip()
+def is_zip(path: str) -> bool:
+    """Cek apakah file ekstensi .zip"""
+    return path.lower().endswith(".zip")
 
-def file_size(path: str) -> int:
-    """Return ukuran file dalam byte"""
-    return os.path.getsize(path)
+
+def is_txt(path: str) -> bool:
+    """Cek apakah file ekstensi .txt"""
+    return path.lower().endswith(".txt")
+
+
+def pick_file_with_ranger(prompt: str = "Pilih file") -> str:
+    """
+    Launch ranger sebagai file picker.
+    Ranger akan menulis file terpilih ke /tmp/ranger_choice.
+    Kalau ranger tidak tersedia → fallback input manual.
+    """
+    print(f"\n📂 {prompt}")
+    try:
+        # --choosefile = output ke file
+        tmpfile = "/tmp/ranger_choice"
+        result = subprocess.run(
+            ["ranger", f"--choosefile={tmpfile}"],
+            check=False
+        )
+        if result.returncode != 0:
+            print("⚠️ Ranger dibatalkan.")
+            return ""
+
+        if os.path.exists(tmpfile):
+            with open(tmpfile) as f:
+                path = f.read().strip()
+            os.remove(tmpfile)
+            if path:
+                return expand(path)
+        return ""
+    except FileNotFoundError:
+        # fallback kalau ranger tidak ada
+        return input("Path file: ").strip()
