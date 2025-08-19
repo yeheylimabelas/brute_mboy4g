@@ -1,26 +1,22 @@
 # engines/python_engine.py
-# BRUTEZIPER – Python Engine v11
-# -------------------------------------------------------------
-# Fitur utama:
-# - Performa: auto-detect core, dynamic chunk size, streaming wordlist (mmap/iter),
-#   minimal I/O, multiprocessing event-driven stop.
-# - UX: Rich dashboard (rate/ETA/CPU/RAM), progress bar, logging ke file.
-# - Code Simplification: API konsisten (return dict), modular fungsi util.
-# - Smart: Resume canggih via checkpoint JSON (line_index + byte_offset untuk file .txt),
-#   kompatibel file wordlist besar, auto-recommend engine helper.
-# - Backward compatible: alias brute_python_fast_v10 -> brute_python_fast_v11
+# BRUTEZIPER – Python Engine v11 (Advanced, UI Refactor)
+# ------------------------------------------------------------------
+# Fitur Utama:
+# - Multiprocess producer/consumer (task/result queue) dengan stop-event.
+# - Adaptive chunk (berdasarkan CPU & throughput) dgn batas min/max.
+# - Resume canggih: simpan line_index + byte_offset + tested + chunk.
+# - Wordlist besar &/atau terkompresi (.gz/.bz2/.xz) via streaming.
+# - Logging ke file, checkpoint periodik & on-signal (Ctrl+C).
+# - UI modern: ui.panels + ui.dashboard (konsisten dgn john/hybrid).
+# - Heuristik rekomendasi engine + alias v10 -> v11 (back-compat).
 #
-# Ketergantungan opsional:
-# - pyzipper (untuk AES/ZipCrypto). Disarankan: pip install pyzipper
-# - psutil (untuk CPU/RAM). Opsional; kalau tak ada, tetap jalan.
+# Dependensi:
+# - pyzipper (AES/ZipCrypto)  -> pip install pyzipper
+# - psutil (opsional untuk CPU/RAM/Suhu) -> pip install psutil
 #
 # Catatan:
-# - File ini adalah versi advanced (asli ±722 baris) yang dipertahankan
-#   logika & performanya, dengan UI di-refactor agar memakai:
-#     * ui/panels.py  -> panel_info/panel_success/panel_warning/panel_error/panel_stage
-#     * ui/dashboard.py -> Dashboard (Progress + CPU/RAM + ETA)
-# - Tidak mengubah algoritma; hanya mengganti panggilan UI.
-# -------------------------------------------------------------
+# - Fokus perubahan dibanding v10: layer UI saja (logic dipertahankan).
+# ------------------------------------------------------------------
 
 from __future__ import annotations
 
@@ -28,12 +24,10 @@ import os
 import io
 import sys
 import time
-import math
 import json
 import gzip
 import bz2
 import lzma
-import mmap
 import queue
 import signal
 import typing as t
@@ -42,81 +36,64 @@ import multiprocessing
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
-# Optional dependencies
+# === Optional deps ===
 try:
-    import pyzipper  # AES/ZipCrypto
-except Exception as _:
+    import pyzipper  # untuk ZIP AES + ZipCrypto
+except Exception:
     pyzipper = None
 
-# psutil opsional
 try:
     import psutil
 except Exception:
     psutil = None
 
-# === UI (Refactor) ===
-from ui.panels import (
-    panel_info,
-    panel_success,
-    panel_warning,
-    panel_error,
-    panel_stage,
-)
+# === UI (baru) ===
+from ui.panels import panel_info, panel_success, panel_warning, panel_error, panel_stage
 from ui.dashboard import Dashboard
 
-# ------------------------------ Konstanta ----------------------------------
+# === Utils (baru) ===
+from utils.file_ops import file_size as _file_size
+from utils.file_ops import count_lines as _count_lines_plain
+from utils.file_ops import yield_passwords as _yield_pw_plain
+from utils.sysinfo import get_sysinfo as _get_sysinfo
+
+# ------------------------------ Konstanta -----------------------------------
 
 ENGINE_NAME = "python"
 DEFAULT_LOG_DIR = os.path.join(os.getcwd(), "logs")
 os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
 
 CKPT_SUFFIX = ".py_ckpt.json"
+LOG_PREFIX = "python"
 
-READ_CHUNK_BYTES = 1024 * 1024  # 1MB
 CHUNK_MIN = 200
 CHUNK_MAX = 20_000
+DEFAULT_START_CHUNK = 1_000
 
-# Adaptive tuning
-ADJUST_INTERVAL_S = 2.0
-ADJUST_UP_FACTOR = 1.25
-ADJUST_DOWN_FACTOR = 0.8
-HIGH_CPU_THRESHOLD = 85.0  # %
-LOW_CPU_THRESHOLD = 35.0   # %
-INFLIGHT_SOFT_MAX_PER_WORKER = 3  # jaga antrean tidak membengkak
+ADJUST_WIN_SEC = 2.0
+ADJUST_UP = 1.25
+ADJUST_DOWN = 0.85
+CPU_LOW = 35.0
+CPU_HIGH = 85.0
+QUEUE_INFLIGHT_SOFT = 3  # per worker
 
-# ------------------------------ Util Sistem --------------------------------
+# ------------------------------ Helper umum ---------------------------------
 
 def _now() -> float:
     return time.time()
 
-def format_int(n: int) -> str:
+def _fmt_int(n: int) -> str:
     return f"{n:,}".replace(",", ".")
 
-def get_system_info() -> dict:
-    info = {
-        "cpu_percent": None,
-        "ram_percent": None,
-        "cores": multiprocessing.cpu_count(),
-    }
-    if psutil:
-        try:
-            info["cpu_percent"] = psutil.cpu_percent(interval=0.0)
-            info["ram_percent"] = psutil.virtual_memory().percent
-        except Exception:
-            pass
-    return info
-
-# ------------------------------ Logging ------------------------------------
-
 def _mk_log_file(zip_file: str) -> str:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base = os.path.splitext(os.path.basename(zip_file))[0]
-    return os.path.join(DEFAULT_LOG_DIR, f"python_{base}_{stamp}.log")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(DEFAULT_LOG_DIR, f"{LOG_PREFIX}_{base}_{ts}.log")
 
 class Logger:
-    def __init__(self, log_path: str):
-        self.log_path = log_path
-        self._fh = open(self.log_path, "a", encoding="utf-8", errors="ignore")
+    def __init__(self, path: str):
+        self.path = path
+        self._fh = open(self.path, "a", encoding="utf-8", errors="ignore")
 
     def write(self, msg: str):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -129,94 +106,103 @@ class Logger:
         except Exception:
             pass
 
-# ------------------------------ Wordlist Reader ----------------------------
+# --------------------------- Wordlist & Reader ------------------------------
 
-def _open_text_maybe_compressed(path: str) -> t.IO[str]:
+def _open_text_any(path: str) -> t.IO[str]:
     """
-    Buka file teks (bisa gzip/bz2/xz) sebagai text-mode stream utf-8.
+    Buka wordlist: txt / .gz / .bz2 / .xz sebagai text stream utf-8.
     """
     lower = path.lower()
     if lower.endswith(".gz"):
         return io.TextIOWrapper(gzip.open(path, "rb"), encoding="utf-8", errors="ignore")
     if lower.endswith(".bz2"):
         return io.TextIOWrapper(bz2.open(path, "rb"), encoding="utf-8", errors="ignore")
-    if lower.endswith(".xz") or lower.endswith(".lzma"):
+    if lower.endswith((".xz", ".lzma")):
         return io.TextIOWrapper(lzma.open(path, "rb"), encoding="utf-8", errors="ignore")
     return open(path, "r", encoding="utf-8", errors="ignore")
 
-def count_lines_fast(path: str) -> t.Optional[int]:
-    """
-    Hitung jumlah baris wordlist. Untuk file terkompresi mungkin lambat -> kembalikan None.
-    """
+def _is_compressed(path: str) -> bool:
     lower = path.lower()
-    if lower.endswith((".gz", ".bz2", ".xz", ".lzma")):
+    return lower.endswith((".gz", ".bz2", ".xz", ".lzma"))
+
+def _count_lines_smart(path: str) -> t.Optional[int]:
+    """
+    Hitung baris cepat untuk file plain. Untuk file kompresi -> None (biar nggak lambat).
+    """
+    if _is_compressed(path):
         return None
     try:
-        with open(path, "rb") as f:
-            return sum(1 for _ in f)
+        return _count_lines_plain(path)
     except Exception:
         return None
 
-# ------------------------------ ZIP Tester ---------------------------------
+# NOTE: currently unused by python_engine,
+# but kept for potential reuse by hybrid_engine or CLI tools.
+def _yield_passwords_smart(path: str, start_index: int = 0) -> t.Generator[str, None, None]:
+    """
+    Generator password. Untuk file plain gunakan util; compress pakai reader internal.
+    """
+    if not _is_compressed(path):
+        yield from _yield_pw_plain(path, start_index)
+        return
+
+    with _open_text_any(path) as f:
+        for i, line in enumerate(f):
+            if i < start_index:
+                continue
+            yield line.rstrip("\r\n")
+
+# --------------------------- ZIP Tester -------------------------------------
 
 @dataclass
 class ZipTestResult:
     ok: bool
+    is_encrypted: bool
     error: t.Optional[str] = None
-    is_encrypted: bool = True
 
 class ZipTester:
-    """
-    Abstraksi untuk mengetes password pada ZIP (AES/ZipCrypto).
-    """
     def __init__(self, zip_path: str):
         self.zip_path = zip_path
-        self.is_encrypted = True
-        self.probed = False
 
-    def probe_encryption(self) -> ZipTestResult:
-        if self.probed:
-            return ZipTestResult(ok=True, is_encrypted=self.is_encrypted)
+    def probe(self) -> ZipTestResult:
+        """
+        Cek apakah ZIP terenkripsi. Jika pyzipper raising saat probe, anggap terenkripsi.
+        """
         try:
             with pyzipper.AESZipFile(self.zip_path) as zf:
                 for zinfo in zf.infolist():
-                    # jika tidak terenkripsi?
-                    if not zinfo.flag_bits & 0x1:
-                        self.is_encrypted = False
-                        break
-            self.probed = True
-            return ZipTestResult(ok=True, is_encrypted=self.is_encrypted)
+                    if not (zinfo.flag_bits & 0x1):
+                        return ZipTestResult(ok=True, is_encrypted=False)
+            return ZipTestResult(ok=True, is_encrypted=True)
         except Exception as e:
-            # sebagian ZIP bisa error dibuka tanpa password; anggap terenkripsi
-            self.probed = True
+            # Banyak file terenkripsi akan raise disini tanpa password, ini normal
             return ZipTestResult(ok=True, is_encrypted=True, error=str(e))
 
-    def test_password(self, password: str) -> bool:
+    def test(self, password: str) -> bool:
         try:
             with pyzipper.AESZipFile(self.zip_path) as zf:
                 zf.pwd = password.encode("utf-8", "ignore")
-                # testzip akan raise jika salah
-                zf.testzip()
+                zf.testzip()  # akan raise jika salah
             return True
         except Exception:
             return False
 
-# ------------------------------ Checkpoint ---------------------------------
+# --------------------------- Checkpoint (Resume) ----------------------------
 
 @dataclass
 class CheckpointState:
-    line_index: int = 0          # baris terakhir (0-based)
-    byte_offset: int = 0         # untuk resume cepat pada file besar
-    chunk: int = 1000
+    line_index: int = 0
+    byte_offset: int = 0
     tested: int = 0
+    chunk: int = DEFAULT_START_CHUNK
     workers: int = 1
 
-def _ckpt_name(zip_file: str, wordlist: str) -> str:
-    base = os.path.basename(zip_file)
-    wbase = os.path.basename(wordlist)
-    return f"{base}.{wbase}{CKPT_SUFFIX}"
+def _ckpt_path(zip_file: str, wordlist: str) -> str:
+    z = os.path.basename(zip_file)
+    w = os.path.basename(wordlist)
+    return f"{z}.{w}{CKPT_SUFFIX}"
 
-def _load_ckpt(path: str) -> t.Optional[CheckpointState]:
+def _ckpt_load(path: str) -> t.Optional[CheckpointState]:
     if not os.path.exists(path):
         return None
     try:
@@ -226,145 +212,138 @@ def _load_ckpt(path: str) -> t.Optional[CheckpointState]:
     except Exception:
         return None
 
-def _save_ckpt(path: str, st: CheckpointState | dict):
+def _ckpt_save(path: str, st: CheckpointState | dict):
     try:
-        if isinstance(st, CheckpointState):
-            data = asdict(st)
-        else:
-            data = dict(st)
+        data = asdict(st) if isinstance(st, CheckpointState) else dict(st)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception:
         pass
 
-# ------------------------------ Producer/Worker ----------------------------
+# --------------------------- Multiprocess Worker ----------------------------
 
 @dataclass
 class Task:
-    passwords: list[str]
     batch_id: int
+    passwords: list[str]
 
 @dataclass
 class Result:
     tested: int
     password: t.Optional[str] = None
 
-def _worker_main(zip_path: str,
-                task_q: multiprocessing.Queue,
-                result_q: multiprocessing.Queue,
-                found_event: multiprocessing.Event):
-    """
-    Worker proses: terima batch passwords, uji satu per satu, laporkan jika ketemu/selesai.
-    """
+def _worker_main(
+    zip_path: str,
+    task_q: multiprocessing.Queue,
+    result_q: multiprocessing.Queue,
+    found_event: t.Event,
+):
     tester = ZipTester(zip_path)
     while not found_event.is_set():
         try:
             task: Task | None = task_q.get(timeout=0.2)
         except queue.Empty:
             continue
-        if task is None:  # sentinel
+        if task is None:
             break
 
-        found = None
+        hit = None
         for pw in task.passwords:
             if found_event.is_set():
                 break
-            if tester.test_password(pw):
-                found = pw
+            if tester.test(pw):
+                hit = pw
                 found_event.set()
                 break
 
-        result_q.put(Result(tested=len(task.passwords), password=found))
+        result_q.put(Result(tested=len(task.passwords), password=hit))
 
-# ------------------------------ Engine Utama --------------------------------
+# --------------------------- Engine Utama -----------------------------------
 
-def brute_python_fast_v11(zip_file: str,
-                        wordlist: str,
-                        processes: t.Optional[int] = None,
-                        start_chunk: int = 1000,
-                        resume: bool = True) -> dict:
+def brute_python_fast_v11(
+    zip_file: str,
+    wordlist: str,
+    processes: t.Optional[int] = None,
+    start_chunk: int = DEFAULT_START_CHUNK,
+    resume: bool = True,
+) -> dict:
     """
-    Python brute-force dengan wordlist:
-    - Multiprocess, dynamic chunk size, resume canggih (line index + byte offset),
-    dashboard Rich, log file, checkpoint berkala & on-signal.
+    Brute-force ZIP dengan Python wordlist:
+        - Multiprocess queue
+        - Adaptive chunk
+        - Resume canggih (line_index + byte_offset + tested + chunk)
+        - Logging + UI dashboard
     """
-    start_time = _now()
-    sys_info = get_system_info()
-    cores = sys_info["cores"]
-    if processes is None:
-        # sisakan 1 core untuk sistem
-        processes = max(1, cores - 1)
+    t0 = _now()
 
-    # UI – header (refactor ke panel_stage)
+    # ---- UI header
     panel_stage(
-        f"[bold cyan]BRUTEZIPER v11 – Python Engine[/]\n"
-        f"[white]📦 ZIP      :[/] {os.path.basename(zip_file)}\n"
-        f"[white]📝 Wordlist :[/] {os.path.basename(wordlist)}\n",
-        color="cyan"
+        f"[bold cyan]BRUTEZIPER – Python Engine[/]\n"
+        f"[white]📦 ZIP       :[/] {os.path.basename(zip_file)}\n"
+        f"[white]📝 Wordlist  :[/] {os.path.basename(wordlist)}",
+        color="cyan",
     )
 
-    # Inisialisasi log
+    # ---- logging
     log_path = _mk_log_file(zip_file)
     logger = Logger(log_path)
-    logger.write(f"START engine={ENGINE_NAME} zip={zip_file} wordlist={wordlist} "
-                f"workers={processes} start_chunk={start_chunk} resume={resume}")
+    logger.write(f"START engine={ENGINE_NAME} zip={zip_file} wordlist={wordlist}")
 
-    # Dependensi
+    # ---- deps check
     if pyzipper is None:
-        msg = "pyzipper tidak terpasang. `pip install pyzipper`"
+        msg = "pyzipper tidak terpasang. Install: pip install pyzipper"
         panel_error(msg)
         logger.write(f"ERROR {msg}")
         logger.close()
-        return {"password": "", "tested": 0, "elapsed": 0.0, "rate": 0.0,
-                "used_resume": False, "checkpoint_file": None,
-                "log_file": log_path, "engine": ENGINE_NAME, "error": msg}
+        return _ret("", 0, _now() - t0, 0.0, False, None, log_path, msg)
 
-    # Probe enkripsi
-    tester_probe = ZipTester(zip_file).probe_encryption()
-    if not tester_probe.ok and tester_probe.error:
-        panel_error(str(tester_probe.error))
-        logger.write(f"ERROR {tester_probe.error}")
+    # ---- probe zip
+    probe = ZipTester(zip_file).probe()
+    if not probe.ok and probe.error:
+        panel_error(f"Gagal probe ZIP: {probe.error}")
+        logger.write(f"ERROR probe: {probe.error}")
         logger.close()
-        return {"password": "", "tested": 0, "elapsed": 0.0, "rate": 0.0,
-                "used_resume": False, "checkpoint_file": None,
-                "log_file": log_path, "engine": ENGINE_NAME, "error": tester_probe.error}
+        return _ret("", 0, _now() - t0, 0.0, False, None, log_path, probe.error)
 
-    if not tester_probe.is_encrypted:
+    if not probe.is_encrypted:
         panel_warning("ZIP tidak terenkripsi. Tidak perlu brute.")
-        logger.write("ZIP not encrypted; abort")
-        elapsed = _now() - start_time
+        logger.write("ZIP not encrypted")
         logger.close()
-        return {"password": "", "tested": 0, "elapsed": elapsed, "rate": 0.0,
-                "used_resume": False, "checkpoint_file": None,
-                "log_file": log_path, "engine": ENGINE_NAME, "error": None}
+        return _ret("", 0, _now() - t0, 0.0, False, None, log_path, None)
 
-    # Hitung total kandidat (opsional, bisa None)
-    total_candidates = count_lines_fast(wordlist)
+    # ---- core & proses
+    cores = (psutil.cpu_count(logical=True) if psutil else multiprocessing.cpu_count())
+    if processes is None:
+        processes = max(1, (cores or 2) - 1)
 
-    # Checkpoint
-    ckpt_path = _ckpt_name(zip_file, wordlist)
+    # ---- total kandidat (opsional)
+    total_candidates = _count_lines_smart(wordlist)
+
+    # ---- checkpoint
+    ckpt = _ckpt_path(zip_file, wordlist)
     used_resume = False
-    state = {
+    state: dict[str, int] = {
         "line_index": 0,
         "byte_offset": 0,
-        "chunk": max(CHUNK_MIN, min(start_chunk, CHUNK_MAX)),
         "tested": 0,
+        "chunk": max(CHUNK_MIN, min(start_chunk, CHUNK_MAX)),
         "workers": processes,
     }
     if resume:
-        ckpt = _load_ckpt(ckpt_path)
-        if ckpt:
-            state["line_index"] = ckpt.line_index
-            state["byte_offset"] = ckpt.byte_offset
-            state["chunk"] = max(CHUNK_MIN, min(ckpt.chunk or start_chunk, CHUNK_MAX))
-            state["tested"] = ckpt.tested
-            state["workers"] = processes
+        prev = _ckpt_load(ckpt)
+        if prev:
+            state["line_index"] = prev.line_index
+            state["byte_offset"] = prev.byte_offset
+            state["tested"] = prev.tested
+            state["chunk"] = max(CHUNK_MIN, min(prev.chunk, CHUNK_MAX))
             used_resume = True
-            panel_info(f"🔁 Resume dari checkpoint: line={format_int(ckpt.line_index)} "
-                    f"(~tested {format_int(ckpt.tested)})")
+            panel_info(
+                f"🔁 Resume checkpoint: line={_fmt_int(prev.line_index)} | tested≈{_fmt_int(prev.tested)} | chunk={prev.chunk}"
+            )
+            logger.write(f"RESUME ckpt @ line={prev.line_index} tested={prev.tested} chunk={prev.chunk}")
 
-    # Siapkan queue & worker
-    task_q: multiprocessing.Queue = multiprocessing.Queue(maxsize=processes * INFLIGHT_SOFT_MAX_PER_WORKER)
+    # ---- queues & workers
+    task_q: multiprocessing.Queue = multiprocessing.Queue(maxsize=processes * QUEUE_INFLIGHT_SOFT)
     result_q: multiprocessing.Queue = multiprocessing.Queue()
     found_event = multiprocessing.Event()
 
@@ -373,281 +352,272 @@ def brute_python_fast_v11(zip_file: str,
         p = multiprocessing.Process(
             target=_worker_main,
             args=(zip_file, task_q, result_q, found_event),
-            daemon=True
+            daemon=True,
         )
         p.start()
         workers.append(p)
 
-    # Signal handler untuk save ckpt saat Ctrl+C
-    stop_requested = {"flag": False}
+    # ---- SIGINT → save ckpt + stop
+    stop_flag = {"stop": False}
 
-    def _sigint_handler(signum, frame):
-        stop_requested["flag"] = True
-        panel_warning("SIGINT diterima: menyimpan checkpoint & berhenti...")
-    old_handler = signal.signal(signal.SIGINT, _sigint_handler)
+    def _sigint(signum, frame):
+        stop_flag["stop"] = True
+        panel_warning("SIGINT diterima. Menyimpan checkpoint & menghentikan…")
 
-    # Producer (membaca wordlist & mengisi task_q)
+    old_sig = signal.signal(signal.SIGINT, _sigint)
+
+    # ---- Producer thread
     producer_done = threading.Event()
 
     def producer():
         line_idx = int(state["line_index"])
-        byte_offset = int(state["byte_offset"])
         curr_chunk = int(state["chunk"])
         batch_id = 0
 
         try:
-            # Buka file (streaming)
-            f = _open_text_maybe_compressed(wordlist)
+            f = _open_text_any(wordlist)
 
-            # Fast seek by byte_offset untuk resume file besar (hanya untuk file plain)
-            if hasattr(f, "buffer") and byte_offset > 0 and not wordlist.lower().endswith((".gz", ".bz2", ".xz", ".lzma")):
+            # fast-seek by byte_offset (hanya untuk file plain-text)
+            if not _is_compressed(wordlist) and state["byte_offset"] > 0:
                 try:
-                    f_detached = f.detach()
-                    f_detached.seek(byte_offset, io.SEEK_SET)
-                    f = io.TextIOWrapper(f_detached, encoding="utf-8", errors="ignore")
+                    raw = f.detach()
+                    raw.seek(state["byte_offset"], io.SEEK_SET)
+                    f = io.TextIOWrapper(raw, encoding="utf-8", errors="ignore")
                 except Exception:
+                    # kalau gagal detach/seek, fallback lanjut line skip
                     pass
 
-            # Skip baris sesuai checkpoint
+            # skip baris sesuai checkpoint
             skipped = 0
             while skipped < line_idx:
                 if not f.readline():
                     break
                 skipped += 1
 
-            while not found_event.is_set() and not stop_requested["flag"]:
-                # Batasi in-flight
-                while task_q.qsize() > processes * INFLIGHT_SOFT_MAX_PER_WORKER and not found_event.is_set():
+            while not found_event.is_set() and not stop_flag["stop"]:
+                # kontrol antrean (jangan terlalu penuh)
+                while task_q.qsize() >= processes * QUEUE_INFLIGHT_SOFT and not found_event.is_set():
                     time.sleep(0.02)
 
-                # Susun batch
-                pw_batch = []
+                batch: list[str] = []
                 for _ in range(curr_chunk):
                     line = f.readline()
                     if not line:
                         break
                     pw = line.rstrip("\r\n")
-                    pw_batch.append(pw)
+                    batch.append(pw)
                     line_idx += 1
 
-                if not pw_batch:
+                if not batch:
                     break
 
                 try:
-                    task_q.put(Task(passwords=pw_batch, batch_id=batch_id), timeout=0.2)
+                    task_q.put(Task(batch_id=batch_id, passwords=batch), timeout=0.2)
                     batch_id += 1
                 except queue.Full:
-                    # coba lagi
                     time.sleep(0.05)
                     continue
 
-                # Simpan posisi file untuk ckpt
+                # simpan approximate byte_offset (untuk resume cepat)
                 try:
-                    if hasattr(f, "buffer"):
-                        raw = f.buffer
-                        if hasattr(raw, "tell"):
-                            byte_offset = raw.tell()
+                    if hasattr(f, "buffer") and hasattr(f.buffer, "tell"):
+                        state["byte_offset"] = f.buffer.tell()
                 except Exception:
                     pass
 
-                # Sync state untuk dashboard & ckpt
-                state["line_index"] = line_idx
-                state["byte_offset"] = byte_offset
-                state["chunk"] = curr_chunk
+                # propagate ukuran chunk adaptif dari consumer
+                curr_chunk = int(state["chunk"])
 
-                # Adaptasi sederhana (prod side): kalau antrean penuh, kecilkan chunk
-                if task_q.qsize() >= processes * INFLIGHT_SOFT_MAX_PER_WORKER:
-                    curr_chunk = max(CHUNK_MIN, int(curr_chunk * 0.9))
-
-                # Jika stop diminta, break
-                if stop_requested["flag"]:
+                if stop_flag["stop"]:
                     break
 
         except Exception as e:
-            panel_error(str(e))
+            panel_error(f"Producer error: {e}")
         finally:
             producer_done.set()
 
-    prod_thread = threading.Thread(target=producer, daemon=True)
-    prod_thread.start()
+    prod = threading.Thread(target=producer, daemon=True)
+    prod.start()
 
-    # Dashboard
-    tested_total = int(state["tested"])
-    found_password: t.Optional[str] = None
-    last_adjust = _now()
-    last_tested = tested_total
-    curr_chunk = int(state["chunk"])
+    # ---- Consumer loop + Dashboard
+    tested = int(state["tested"])
+    found_pw: t.Optional[str] = None
+    last_adj_t = _now()
+    last_count = tested
 
-    task_total = total_candidates if total_candidates is not None else None
-    with Dashboard(total=task_total, label="Python brute") as dash:
-
-        # Loop hasil worker
+    total_for_dash = total_candidates if total_candidates is not None else None
+    with Dashboard(total=total_for_dash, label="Python brute") as dash:
         while True:
-            # Ambil hasil
+            # ambil hasil worker
             try:
-                result: Result | None = result_q.get(timeout=0.2)
+                res: Result | None = result_q.get(timeout=0.2)
             except queue.Empty:
-                result = None
+                res = None
 
-            now = _now()
-
-            if result:
-                tested_total += int(result.tested or 0)
-                if result.password:
-                    found_password = result.password
+            if res:
+                tested += int(res.tested)
+                if res.password:
+                    found_pw = res.password
                     found_event.set()
 
-            # Update dashboard
-            dash.update(completed=min(tested_total, total_candidates) if total_candidates is not None else tested_total)
+            # update dashboard (completed)
+            dash.update(completed=min(tested, total_candidates) if total_candidates is not None else tested)
 
-            # Adaptive tuning (tiap ADJUST_INTERVAL_S)
-            if now - last_adjust >= ADJUST_INTERVAL_S:
-                # Rate
-                elapsed = max(1e-6, now - start_time)
-                rate = tested_total / elapsed
+            # adaptive tuning setiap ADJUST_WIN_SEC
+            now = _now()
+            if now - last_adj_t >= ADJUST_WIN_SEC:
+                # throughput
+                delta = tested - last_count
+                rate = delta / (now - last_adj_t) if now > last_adj_t else 0.0
 
                 # CPU/RAM
-                cpu = None
-                if psutil:
-                    try:
-                        cpu = psutil.cpu_percent(interval=0.0)
-                    except Exception:
-                        cpu = None
+                sysi = _get_sysinfo() if psutil else {"cpu_percent": None, "ram_percent": None, "temp": None}
+                cpu = sysi.get("cpu_percent")
 
-                # Naik/turun chunk berdasarkan CPU & rate delta
-                delta = tested_total - last_tested
+                # adjust chunk
+                new_chunk = int(state["chunk"])
                 if cpu is not None:
-                    if cpu < LOW_CPU_THRESHOLD and delta > 0:
-                        curr_chunk = min(CHUNK_MAX, int(curr_chunk * ADJUST_UP_FACTOR))
-                    elif cpu > HIGH_CPU_THRESHOLD:
-                        curr_chunk = max(CHUNK_MIN, int(curr_chunk * ADJUST_DOWN_FACTOR))
+                    if cpu < CPU_LOW and delta > 0:
+                        new_chunk = min(CHUNK_MAX, int(new_chunk * ADJUST_UP))
+                    elif cpu > CPU_HIGH:
+                        new_chunk = max(CHUNK_MIN, int(new_chunk * ADJUST_DOWN))
+                # jika delta kecil dari separuh chunk → kecilkan sedikit (hindari idle/IO-bound)
+                if delta < max(1, state["chunk"] // 2):
+                    new_chunk = max(CHUNK_MIN, int(new_chunk * 0.9))
 
-                # Jika rate stagnan, kecilkan sedikit
-                if delta < curr_chunk // 2:
-                    curr_chunk = max(CHUNK_MIN, int(curr_chunk * 0.9))
+                if new_chunk != state["chunk"]:
+                    state["chunk"] = new_chunk
 
-                # Terapkan perubahan ke state (producer baca state["chunk"])
-                if curr_chunk != state["chunk"]:
-                    state["chunk"] = curr_chunk
-                last_adjust = now
-                last_tested = tested_total
+                # save ckpt periodik
+                state["tested"] = tested
+                _ckpt_save(ckpt, state)
 
-                # Simpan checkpoint berkala
-                state["tested"] = tested_total
-                _save_ckpt(ckpt_path, state)
+                last_adj_t = now
+                last_count = tested
 
-            # Selesai?
+            # selesai?
             if found_event.is_set():
                 break
 
-            # Jika producer sudah selesai kirim semua batch dan semua worker idle, maka berhenti
-            if producer_done.is_set() and result_q.empty() and task_q.empty():
-                # Masih beri waktu kecil untuk hasil terakhir
+            # producer sudah habis + antrean kosong
+            if producer_done.is_set() and task_q.empty() and result_q.empty():
+                # beri sedikit waktu untuk hasil terakhir
                 time.sleep(0.2)
                 if result_q.empty():
                     break
 
-    # Bersihkan worker
+    # ---- tutup workers
     for p in workers:
         try:
             p.join(timeout=0.2)
         except Exception:
             pass
 
-    elapsed = _now() - start_time
-    rate = tested_total / elapsed if elapsed > 0 else 0.0
-
-    # Pulihkan signal handler
+    # kembalikan signal handler
     try:
-        signal.signal(signal.SIGINT, old_handler)
+        signal.signal(signal.SIGINT, old_sig)
     except Exception:
         pass
 
-    # Tuliskan hasil + log
-    if found_password:
-        panel_success(f"Password ditemukan oleh Python: {found_password}")
-        logger.write(f"FOUND pw='{found_password}' tested={tested_total} elapsed={elapsed:.2f}s rate={rate:.0f}/s")
-        # Save final checkpoint
-        state["tested"] = tested_total
-        _save_ckpt(ckpt_path, state)
+    # ---- hasil akhir
+    elapsed = _now() - t0
+    rate_overall = tested / elapsed if elapsed > 0 else 0.0
+
+    if found_pw:
+        panel_success(f"Password ditemukan oleh Python: {found_pw}")
+        logger.write(f"FOUND pw='{found_pw}' tested={tested} elapsed={elapsed:.2f}s rate={rate_overall:.0f}/s")
     else:
         panel_warning("Password tidak ditemukan dalam wordlist (Python).")
-        logger.write(f"NOTFOUND tested={tested_total} elapsed={elapsed:.2f}s rate={rate:.0f}/s")
+        logger.write(f"NOTFOUND tested={tested} elapsed={elapsed:.2f}s rate={rate_overall:.0f}/s")
+
+    # save ckpt final
+    state["tested"] = tested
+    _ckpt_save(ckpt, state)
 
     logger.close()
+    return _ret(found_pw or "", tested, elapsed, rate_overall, used_resume, ckpt, log_path, None)
 
+# --------------------------- Return Helper ----------------------------------
+
+def _ret(
+    password: str,
+    tested: int,
+    elapsed: float,
+    rate: float,
+    used_resume: bool,
+    ckpt_path: t.Optional[str],
+    log_path: str,
+    error: t.Optional[str],
+) -> dict:
     return {
-        "password": found_password,
-        "tested": tested_total,
+        "password": password or None,
+        "tested": tested,
         "elapsed": elapsed,
         "rate": rate,
         "used_resume": used_resume,
         "checkpoint_file": ckpt_path,
         "log_file": log_path,
         "engine": ENGINE_NAME,
-        "error": None
+        "error": error,
     }
 
-# ------------------------------ Rekomendasi Engine --------------------------
+# --------------------------- Heuristik Engine -------------------------------
 
-def recommend_engine_for(wordlist_path: str,
-                        max_python_mb: int = 50) -> str:
+def recommend_engine_for(wordlist_path: str, max_python_mb: int = 50) -> str:
     """
-    Heuristik sederhana untuk pilih engine.
-    - File kecil (< 5MB) → python
-    - File menengah (5-50MB) → hybrid
-    - File sangat besar (> 50MB) → john
-    - Jika file kompresi & cukup besar → john
-    - Jika RAM kecil vs file besar → john
+    Heuristik kasar memilih engine:
+        < 5 MB           -> python
+        5..50 MB         -> hybrid
+        > 50 MB          -> john
+    Jika file kompresi & besar, condong ke john.
+    Jika RAM kecil terhadap ukuran file, condong ke john.
     """
     try:
-        size_bytes = os.path.getsize(wordlist_path)
+        size_b = _file_size(wordlist_path)
     except Exception:
         return "hybrid"
 
-    size_mb = size_bytes / (1024 * 1024)
+    size_mb = size_b / (1024 * 1024)
 
     if size_mb < 5:
         return "python"
     if size_mb < max_python_mb:
         return "hybrid"
 
-    # Jika file kompresi cukup besar → john
-    lower = wordlist_path.lower()
-    if lower.endswith((".gz", ".bz2", ".xz", ".lzma")) and size_mb > max_python_mb / 2:
+    if _is_compressed(wordlist_path) and size_mb > max_python_mb / 2:
         return "john"
 
-    # Jika RAM rendah dan file besar
     if psutil:
         try:
             vm = psutil.virtual_memory()
-            # kira-kira: kalau file > 25% dari RAM -> john
-            if size_bytes > vm.total * 0.25:
+            if size_b > vm.total * 0.25:
                 return "john"
         except Exception:
             pass
 
-    # default fallback
     return "john"
 
-# ------------------------------ Back-Compat Alias ---------------------------
+# --------------------------- Back-compat alias ------------------------------
 
-def brute_python_fast_v10(zip_file: str, wordlist: str, processes: t.Optional[int] = None,
-                        start_chunk: int = 1000, resume: bool = True) -> dict:
-    """
-    Alias ke v11 (kompatibel ke belakang).
-    """
+def brute_python_fast_v10(
+    zip_file: str,
+    wordlist: str,
+    processes: t.Optional[int] = None,
+    start_chunk: int = DEFAULT_START_CHUNK,
+    resume: bool = True,
+) -> dict:
     return brute_python_fast_v11(zip_file, wordlist, processes, start_chunk, resume)
 
-# ------------------------------ CLI Quick Test ------------------------------
+# --------------------------- CLI Quick Test ---------------------------------
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="BRUTEZIPER v11 - Python Engine (Advanced, UI Refactor)")
+
+    parser = argparse.ArgumentParser(description="BRUTEZIPER – Python Engine v11 (Advanced)")
     parser.add_argument("zip", help="Path ke file .zip terenkripsi")
-    parser.add_argument("wordlist", help="Path ke file wordlist (.txt)")
+    parser.add_argument("wordlist", help="Path ke file wordlist (.txt/.gz/.bz2/.xz)")
     parser.add_argument("--workers", type=int, default=None, help="Jumlah proses worker (default: cores-1)")
-    parser.add_argument("--chunk", type=int, default=1000, help="Ukuran batch awal")
+    parser.add_argument("--chunk", type=int, default=DEFAULT_START_CHUNK, help="Ukuran batch awal")
     parser.add_argument("--no-resume", action="store_true", help="Nonaktifkan resume")
     args = parser.parse_args()
 
@@ -656,7 +626,6 @@ if __name__ == "__main__":
         args.wordlist,
         processes=args.workers,
         start_chunk=args.chunk,
-        resume=(not args.no_resume)
+        resume=(not args.no_resume),
     )
-    # Ringkas saja di CLI
     print(res)
