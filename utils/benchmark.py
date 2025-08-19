@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import time
 from typing import Callable, Dict, Any, Optional, List
-from utils.analyzer import get_zip_metadata
 
 
 def dry_run(zip_file: str, wordlist: Optional[str] = None) -> Dict[str, Any]:
@@ -23,17 +22,9 @@ def dry_run(zip_file: str, wordlist: Optional[str] = None) -> Dict[str, Any]:
         elif not wordlist.lower().endswith(".txt"):
             issues.append("Wordlist harus .txt.")
 
-    meta = {}
-    if not issues and zip_file and os.path.exists(zip_file):
-        try:
-            meta = get_zip_metadata(zip_file)
-        except Exception as e:
-            issues.append(f"Gagal membaca metadata ZIP: {e!r}")
-
     return {
         "ok": len(issues) == 0,
         "issues": issues,
-        "zip_meta": meta,
         "paths": {"zip": zip_file, "wordlist": wordlist},
     }
 

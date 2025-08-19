@@ -11,7 +11,6 @@ from engines.python_engine import brute_python_fast
 from engines.john_engine import brute_john
 from engines.hybrid_engine import brute_hybrid
 from utils.io import auto_select_engine
-from utils.analyzer import get_zip_metadata
 from utils import benchmark
 from ui.menu import radio_grid_menu, pick_file_with_ranger
 from ui.theming import set_theme, THEMES
@@ -129,19 +128,6 @@ def interactive_flow():
     if not zip_file or not zip_file.lower().endswith(".zip") or not os.path.isfile(zip_file):
         ui.error("❌ File ZIP tidak valid/dipilih.")
         sys.exit(1)
-
-    # 🔍 panggil analyzer
-    meta = get_zip_metadata(zip_file)
-    if "error" in meta:
-        ui.error(f"Gagal membaca ZIP: {meta['error']}")
-    else:
-        ui.info(
-            f"📦 File: {meta['file']}\n"
-            f"📏 Size: {meta['size']:,} bytes\n"
-            f"📂 Entries: {meta['entries']}\n"
-            f"🔐 Encrypted: {'Ya' if meta['encrypted'] else 'Tidak'}",
-            title="ZIP Metadata"
-        )
 
     if engine == "python":
         wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")

@@ -100,6 +100,21 @@ class PythonEngine(BaseEngine):
         from ui.dashboard import render_dashboard
 
         with Live("", refresh_per_second=max(4, int(1/self.ui_refresh))) as live:
+            while not self.stop_event.is_set():
+                elapsed = time.time() - start_time
+                live.update(render_dashboard(
+                    zip_file=os.path.basename(self.zip_file),
+                    wordlist=os.path.basename(self.wordlist),
+                    processes=self.processes,
+                    start_at=self.start_at,
+                    remaining_total=self.remaining_total,
+                    tested=self.tested,
+                    in_flight=self.in_flight,
+                    start_time=start_time,
+                    status="Running" if not found_event.is_set() else "FOUND ✅"
+                ))
+                time.sleep(self.ui_refresh)
+
 
             from concurrent.futures import ProcessPoolExecutor
             pending = set()
