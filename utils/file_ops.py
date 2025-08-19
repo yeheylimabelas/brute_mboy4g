@@ -9,7 +9,12 @@
 
 import os
 import subprocess
+import tempfile
 from typing import Generator
+from rich.panel import Panel
+from rich.console import Console
+
+console = Console()
 
 def expand(path: str) -> str:
     """Expand ~ dan jadikan path absolut"""
@@ -52,30 +57,34 @@ def file_size(path: str) -> str:
     return f"{size:.2f} PB"
 
 
-def pick_file_with_ranger(prompt: str = "Pilih file") -> str:
-    """
-    Launch ranger sebagai file picker.
-    Ranger akan menulis file terpilih ke /tmp/ranger_choice.
-    Kalau ranger tidak tersedia → fallback input manual.
-    """
-    print(f"\n📂 {prompt}")
-    try:
-        tmpfile = "/tmp/ranger_choice"
-        result = subprocess.run(
-            ["ranger", f"--choosefile={tmpfile}"],
-            check=False
-        )
-        if result.returncode != 0:
-            print("⚠️ Ranger dibatalkan.")
-            return ""
+def pick_file_with_ranger(prompt_title="Pilih file"):
+    """Gunakan ranger sebagai file picker, fallback ke input manual."""
+    fd, tmpfile = tempfile.mkstemp(prefix="ranger_select_", suffix=".txt")
+    os.close(fd)
 
-        if os.path.exists(tmpfile):
-            with open(tmpfile) as f:
-                path = f.read().strip()
-            os.remove(tmpfile)
-            if path:
-                return expand(path)
-        return ""
+    console.print(Panel(f"[cyan]📂 {prompt_title}[/]", border_style="cyan"))
+    try:
+        subprocess.call(["ranger", "--choosefiles", tmpfile])
     except FileNotFoundError:
-        # fallback kalau ranger tidak ada
+        console.print(Panel("[red]❌ Ranger tidak ditemukan. Input manual...[/]", border_style="red"))
         return input("Path file: ").strip()
+
+    console.print("[yellow]📑 Ranger selesai. Cek file pilihan...[/]")
+
+    if os.path.exists(tmpfile):
+        with open(tmpfile, "r") as f:
+            path = f.readline().strip()
+        try:
+            os.remove(tmpfile)
+        except Exception:
+            pass
+
+        if path:
+            console.print(f"[green]✅ Terpilih:\n{path}[/]")
+            return expand(path)
+        else:
+            console.print("[red]⚠ Tidak ada yang dipilih.[/]")
+            return None
+    else:
+        console.print("[red]❌ File hasil pilihan tidak ditemukan.[/]")
+        return None
