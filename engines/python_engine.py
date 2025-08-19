@@ -39,17 +39,15 @@ def _worker_try_chunk(zip_path, pw_chunk, stop_event):
 
 
 class PythonEngine(BaseEngine):
-    name = "python"
-    mode = "wordlist"
-
     def __init__(self, zip_file, wordlist,
-                processes=4, start_at=0,
-                adaptive_chunk=1000, resume=True,
-                ui_refresh=0.5, checkpoint_every=50_000):
+                 processes=4, start_at=0,
+                 adaptive_chunk=1000, resume=True,
+                 ui_refresh=0.5, checkpoint_every=50_000):
+        super().__init__(zip_file, wordlist)  # ✅ tanpa "python"
 
-        super().__init__("python", zip_file)   # ✅ cukup 2 argumen
+        self.name = "python"   # ⬅️ set manual
+        self.mode = "wordlist"
 
-        self.wordlist = wordlist              # ✅ simpan sendiri
         self.processes = processes
         self.start_at = start_at
         self.adaptive_chunk = adaptive_chunk
@@ -62,11 +60,8 @@ class PythonEngine(BaseEngine):
         self.tested = 0
         self.in_flight = 0
 
-        # events
         self.stop_event = threading.Event()
         self.found_event = threading.Event()
-
-
 
     def run(self):
         if not os.path.exists(self.zip_file):
