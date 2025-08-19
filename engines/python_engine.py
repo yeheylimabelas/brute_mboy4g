@@ -111,15 +111,15 @@ class PythonEngine(BaseEngine):
             while not self.stop_event.is_set():
                 elapsed = time.time() - start_time
                 live.update(render_dashboard(
-                    zip_file=os.path.basename(self.zip_file),
-                    wordlist=os.path.basename(self.wordlist),
-                    processes=self.processes,
-                    start_at=self.start_at,
-                    remaining_total=self.remaining_total,
-                    tested=self.tested,
-                    in_flight=self.in_flight,
-                    start_time=start_time,
-                    status="Running" if not found_event.is_set() else "FOUND ✅"
+                    self.zip_file,
+                    os.path.basename(self.wordlist),
+                    self.processes,
+                    self.start_at,
+                    self.remaining_total,
+                    self.tested,
+                    self.in_flight,
+                    start_time,
+                    status="Running" if not self.found_event.is_set() else "FOUND ✅"
                 ))
                 time.sleep(self.ui_refresh)
 
