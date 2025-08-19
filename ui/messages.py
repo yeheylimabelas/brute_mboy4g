@@ -1,6 +1,6 @@
 from rich.console import Console
 from rich.panel import Panel
-from bruteziper.ui.theming import get_style
+from ui.theming import get_style
 
 console = Console()
 
