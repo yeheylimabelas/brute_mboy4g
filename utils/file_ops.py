@@ -9,7 +9,7 @@
 
 import os
 import subprocess
-
+from typing import Generator
 
 def expand(path: str) -> str:
     """Expand ~ dan jadikan path absolut"""
@@ -25,6 +25,18 @@ def is_txt(path: str) -> bool:
     """Cek apakah file ekstensi .txt"""
     return path.lower().endswith(".txt")
 
+def count_lines(path: str) -> int:
+    """Hitung jumlah baris pada file wordlist"""
+    with open(path, "rb") as f:
+        return sum(1 for _ in f)
+
+def yield_passwords(wordlist: str, start_index: int = 0) -> Generator[str, None, None]:
+    """Generator password dari wordlist mulai dari index tertentu"""
+    with open(wordlist, "r", encoding="utf-8", errors="ignore") as f:
+        for idx, line in enumerate(f):
+            if idx < start_index:
+                continue
+            yield line.strip()
 
 def file_size(path: str) -> str:
     """Kembalikan ukuran file dalam format human readable (KB, MB, GB)."""
