@@ -42,8 +42,10 @@ class PythonEngine(BaseEngine):
     name = "python"
     mode = "wordlist"
 
-    def __init__(self, zip_file, wordlist, processes=4, start_at=0,
-                 adaptive_chunk=1000, resume=True, ui_refresh=0.5):
+    def __init__(self, zip_file, wordlist,
+                processes=4, start_at=0,
+                adaptive_chunk=1000, resume=True,
+                ui_refresh=0.5, checkpoint_every=50_000):   # ⬅️ tambahin default
         super().__init__("python", zip_file, wordlist)
 
         self.processes = processes
@@ -51,6 +53,7 @@ class PythonEngine(BaseEngine):
         self.adaptive_chunk = adaptive_chunk
         self.resume = resume
         self.ui_refresh = ui_refresh
+        self.checkpoint_every = checkpoint_every   # ✅ sekarang aman
 
         # tracking progress
         self.remaining_total = 0
@@ -60,6 +63,7 @@ class PythonEngine(BaseEngine):
         # 🔑 fix disini
         self.stop_event = threading.Event()
         self.found_event = threading.Event()
+
 
     def run(self):
         if not os.path.exists(self.zip_file):
