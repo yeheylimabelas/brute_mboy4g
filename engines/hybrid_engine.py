@@ -1,65 +1,116 @@
-from rich.console import Console
-from rich.panel import Panel
+# bruteziper/engines/hybrid_engine.py
+from __future__ import annotations
+import time
+from typing import Optional, Dict, Any
 
-from engines.python_engine import brute_python_fast
-from engines.john_engine import brute_john
-from ui import messages as ui
+from .base import BaseEngine
+from bruteziper.ui import messages as ui
+from bruteziper.ui import dashboard
 
-console = Console()
+try:
+    from bruteziper.engines.python_engine import brute_python_fast
+except Exception:  # pragma: no cover
+    brute_python_fast = None
 
-def brute_hybrid(zip_file, wordlist, processes=None, start_chunk=1000, resume=True):
-    """
-    Hybrid engine:
-    1. Coba Python engine dengan wordlist
-    2. Jika gagal, lanjut John incremental
-    Return dict {password, source, elapsed, ...}
-    """
-    ui.attention(
-        "[cyan]🧪 Tahap 1: Python (wordlist) — jika gagal lanjut John incremental")
+try:
+    from bruteziper.engines.john_engine import brute_john
+except Exception:  # pragma: no cover
+    brute_john = None
 
-    # === Tahap 1: Python brute dengan wordlist ===
-    py_result = brute_python_fast(
-        zip_file, 
-        wordlist, 
-        processes=processes, 
-        start_chunk=start_chunk, 
-        resume=resume
-    )
 
-    if py_result and py_result.get("password"):
-        ui.success(f"✅ Password ditemukan oleh Python: {py_result['password']}")
-        return {
-            "password": py_result["password"],
-            "source": "python",
-            "tested": py_result["tested"],
-            "elapsed": py_result["elapsed"],
-            "rate": py_result["rate"]
-        }
+class HybridEngine(BaseEngine):
+    name = "hybrid"
+    mode = "sequential"
 
-    # === Tahap 2: John incremental ===
-    ui.warning(
-        "❌ Password tidak ditemukan dalam wordlist. "
-        "➡️  Lanjut brute dengan John incremental...")
+    def __init__(
+        self,
+        zip_file: str,
+        wordlist: Optional[str],
+        *,
+        processes: Optional[int] = None,
+        start_chunk: int = 1000,
+        resume: bool = True,
+        parallel: bool = False,  # placeholder untuk v12.x
+        john_path: str = "~/john/run",
+        live: bool = True,
+        **kwargs,
+    ):
+        super().__init__(zip_file, wordlist, **kwargs)
+        self.processes = processes
+        self.start_chunk = start_chunk
+        self.resume = resume
+        self.parallel = parallel
+        self.john_path = john_path
+        self.live = live
 
-    john_result = brute_john(
-        zip_file, 
-        wordlist=None,   # abaikan wordlist, langsung incremental
-        john_path="~/john/run", 
-        live=True        # tampilkan live output
-    )
+    def run(self) -> Dict[str, Any]:
+        t0 = time.perf_counter()
 
-    if john_result and john_result.get("password"):
-        return {
-            "password": john_result["password"],
-            "source": "john",
-            "elapsed": john_result["elapsed"],
-            "mode": john_result["mode"],
-            "format": john_result["format"]
-        }
+        if not brute_python_fast or not brute_john:
+            ui.error("Engine dependency belum lengkap (python_engine / john_engine).")
+            result = self.result_schema(
+                password=None, elapsed=0.0, status="error",
+                extra={"reason": "missing_dependency"}
+            )
+            dashboard.show_summary(result)
+            return result
 
-    return {
-        "password": None,
-        "source": "hybrid",
-        "elapsed": (py_result["elapsed"] if py_result else 0) + (john_result["elapsed"] if john_result else 0),
-        "tested": py_result["tested"] if py_result else None
-    }
+        # Tahap 1: Python wordlist
+        ui.info("🧪 Tahap 1: Python (wordlist). Jika gagal, lanjut John incremental.", title="HYBRID")
+        py_result = brute_python_fast(
+            self.zip_file,
+            self.wordlist,
+            processes=self.processes,
+            start_chunk=self.start_chunk,
+            resume=self.resume,
+        )
+
+        if py_result and py_result.get("password"):
+            elapsed = time.perf_counter() - t0
+            result = self.result_schema(
+                password=py_result.get("password"),
+                elapsed=elapsed,
+                rate=py_result.get("rate"),
+                status="ok",
+                mode="python-first",
+                extra={"source": "python"}
+            )
+            dashboard.show_summary(result)
+            return result
+
+        # Tahap 2: John incremental
+        ui.attention("➡️  Lanjut brute dengan John incremental ...", title="HYBRID")
+        john_result = brute_john(
+            self.zip_file,
+            wordlist=None,
+            john_path=self.john_path,
+            live=self.live
+        )
+
+        elapsed = time.perf_counter() - t0
+        if john_result and john_result.get("password"):
+            result = self.result_schema(
+                password=john_result.get("password"),
+                elapsed=elapsed,
+                rate=john_result.get("rate"),
+                status="ok",
+                mode="john-incremental",
+                extra={"source": "john", "format": john_result.get("format")}
+            )
+            dashboard.show_summary(result)
+            return result
+
+        result = self.result_schema(
+            password=None,
+            elapsed=elapsed,
+            status="not_found",
+            mode="sequential"
+        )
+        dashboard.show_summary(result)
+        return result
+
+
+# Wrapper fungsi agar kompatibel dengan main.py lama
+def brute_hybrid(zip_file: str, wordlist: str, **kwargs) -> Dict[str, Any]:
+    eng = HybridEngine(zip_file, wordlist, **kwargs)
+    return eng.run()
