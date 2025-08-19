@@ -1,93 +1,165 @@
 #!/usr/bin/env python3
-# BRUTEZIPER v11 – main entry
-# -------------------------------------------------------------
-# Bisa jalan dengan argparse (CLI mode) atau interactive menu.
-# -------------------------------------------------------------
+# -*- coding: utf-8 -*-
+# BRUTEZIPER v11 (modular)
 
-import sys
-import argparse
+import sys, os
+from rich.console import Console
+from rich.panel import Panel
 
-from ui.interactive import interactive_flow
-from engines.python_engine import brute_python_fast_v11
+from engines.python_engine import brute_python_fast
 from engines.john_engine import brute_john
 from engines.hybrid_engine import brute_hybrid
+from utils.io import auto_select_engine
+from ui.menu import radio_grid_menu, pick_file_with_ranger
+from ui import messages as ui
+
+console = Console()
+
+# =========================
+# Banner
+# =========================
+def banner():
+    os.system("cls" if os.name == "nt" else "clear")
+    ui.info(
+        "[bold magenta]BRUTEZIPER v11[/]\n"
+        "By [bold bright_blue]MBOY4G[/]\n"
+        "As [bold bright_blue]Ryven Novyr Asmadeus[/]\n"
+        "Mode Python · John · John Live · Hybrid",
+        title="[cyan]SCRIPT")
+
+# =========================
+# CLI Usage
+# =========================
+def usage():
+    ui.blue(
+        "📌 Penggunaan:\n"
+        "  python main.py                (mode interaktif)\n"
+        "  python main.py --engine python <zip> <wordlist>\n"
+        "  python main.py --engine john   <zip> [wordlist] [--live] [--john-path <dir>]\n"
+        "  python main.py --engine hybrid <zip> <wordlist>\n")
+
+# =========================
+# CLI Flow
+# =========================
+def cli_flow():
+    if len(sys.argv) < 3 or sys.argv[1] != "--engine":
+        usage(); sys.exit(1)
+
+    engine = sys.argv[2].lower()
+    if engine == "python":
+        if len(sys.argv) < 5:
+            usage(); sys.exit(1)
+        zip_file = sys.argv[3]; wordlist = sys.argv[4]
+        brute_python_fast(zip_file, wordlist)
+
+    elif engine == "john":
+        if len(sys.argv) < 4:
+            usage(); sys.exit(1)
+        zip_file = sys.argv[3]
+        wordlist = None
+        if len(sys.argv) >= 5 and not sys.argv[4].startswith("--"):
+            wordlist = sys.argv[4]
+        live = "--live" in sys.argv
+        john_path = "~/john/run"
+        if "--john-path" in sys.argv:
+            try: john_path = sys.argv[sys.argv.index("--john-path")+1]
+            except Exception: pass
+        brute_john(zip_file, wordlist=wordlist, john_path=john_path, live=live)
+
+    elif engine == "hybrid":
+        if len(sys.argv) < 5:
+            usage(); sys.exit(1)
+        zip_file = sys.argv[3]; wordlist = sys.argv[4]
+        brute_hybrid(zip_file, wordlist)
+
+    elif engine == "auto":
+        if len(sys.argv) < 5:
+            usage(); sys.exit(1)
+        zip_file = sys.argv[3]; wordlist = sys.argv[4]
+        choice = auto_select_engine(zip_file, wordlist)
+        ui.info(f"🤖 Auto-select memilih engine: {choice.upper()}")
+        if choice == "python":
+            brute_python_fast(zip_file, wordlist)
+        else:
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
+
+    else:
+        usage(); sys.exit(1)
+
+# =========================
+# Interactive Flow
+# =========================
+def interactive_flow():
+    engine = radio_grid_menu("Pilih Engine Untuk Brute",
+        ["Python", "John", "John Live", "Hybrid", "Auto", "Exit!"], cols=2).lower()
 
 
-def main():
-    # kalau user gak kasih argumen → fallback ke interactive mode
+    if engine.startswith("exit!"):
+        console.print("[yellow]⚠️ Program dibatalkan oleh user.[/]")
+        sys.exit(0)
+
+    # pilih ZIP
+    zip_file = pick_file_with_ranger("Pilih file ZIP")
+    if not zip_file or not zip_file.lower().endswith(".zip") or not os.path.isfile(zip_file):
+        ui.error("❌ File ZIP tidak valid/dipilih."); sys.exit(1)
+
+    if engine == "python":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+        brute_python_fast(zip_file, wordlist)
+
+    elif engine == "john":
+        mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
+        if mode.startswith("exit!"):
+            console.print("[yellow]⚠️ Dibatalkan.[/]")
+            sys.exit(0)
+        if mode == "wordlist":
+            wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+            if not wordlist or not wordlist.lower().endswith(".txt"):
+                ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
+        else:
+            brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False)
+
+    elif engine == "john live":
+        mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
+        if mode.startswith("exit!"):
+            console.print("[yellow]⚠️ Dibatalkan.[/]")
+            sys.exit(0)
+        if mode == "wordlist":
+            wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+            if not wordlist or not wordlist.lower().endswith(".txt"):
+                ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=True)
+        else:
+            brute_john(zip_file, wordlist=None, john_path="~/john/run", live=True)
+
+    elif engine == "hybrid":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt) [untuk tahap Python]")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid.")
+            sys.exit(1)
+        brute_hybrid(zip_file, wordlist)
+
+    elif engine == "auto":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+        choice = auto_select_engine(zip_file, wordlist)
+        ui.info(f"🤖 Auto-select memilih engine: {choice.upper()}")
+        if choice == "python":
+            brute_python_fast(zip_file, wordlist)
+        else:
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
+
+
+# =========================
+# MAIN
+# =========================
+if __name__ == "__main__":
+    banner()
     if len(sys.argv) == 1:
         interactive_flow()
-        return
-
-    parser = argparse.ArgumentParser(
-        description="BRUTEZIPER v11 – Universal ZIP Password Cracker"
-    )
-    parser.add_argument("zip", help="Path ke file ZIP terenkripsi")
-    parser.add_argument(
-        "--engine",
-        choices=["python", "john", "hybrid", "auto"],
-        default="hybrid",
-        help="Pilih engine brute-force (default: hybrid)",
-    )
-    parser.add_argument("--wordlist", help="Path ke file wordlist (.txt)")
-    parser.add_argument("--workers", type=int, default=8, help="Jumlah worker (Python)")
-    parser.add_argument("--chunk", type=int, default=1000, help="Ukuran chunk awal (Python)")
-    parser.add_argument("--john-path", default="~/john/run", help="Path folder John the Ripper")
-    parser.add_argument("--no-resume", action="store_true", help="Matikan fitur resume")
-    parser.add_argument("--no-live", action="store_true", help="Matikan live dashboard")
-
-    args = parser.parse_args()
-
-    # jalankan sesuai engine
-    if args.engine == "python":
-        if not args.wordlist:
-            sys.exit("❌ Wordlist wajib untuk Python engine.")
-        brute_python_fast_v11(
-            args.zip,
-            args.wordlist,
-            processes=args.workers,
-            start_chunk=args.chunk,
-            resume=not args.no_resume,
-        )
-
-    elif args.engine == "john":
-        brute_john(
-            args.zip,
-            wordlist=args.wordlist,
-            john_path=args.john_path,
-            live=not args.no_live,
-        )
-
-    elif args.engine == "hybrid":
-        if not args.wordlist:
-            sys.exit("❌ Wordlist wajib untuk Hybrid engine (untuk tahap Python).")
-        brute_hybrid(
-            args.zip,
-            args.wordlist,
-            processes=args.workers,
-            start_chunk=args.chunk,
-            resume=not args.no_resume,
-        )
-
-    elif args.engine == "auto":
-        # simple auto: coba python dulu, kalau gagal fallback john
-        if args.wordlist:
-            ok = brute_python_fast_v11(
-                args.zip,
-                args.wordlist,
-                processes=args.workers,
-                start_chunk=args.chunk,
-                resume=not args.no_resume,
-            )
-            if ok:
-                return
-        brute_john(
-            args.zip,
-            wordlist=None,
-            john_path=args.john_path,
-            live=not args.no_live,
-        )
-
-
-if __name__ == "__main__":
-    main()
+    else:
+        cli_flow()

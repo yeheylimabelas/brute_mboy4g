@@ -1,161 +1,137 @@
-# engines/john_engine.py
-# BRUTEZIPER – John Engine v11 (Advanced, UI Refactor)
-# ------------------------------------------------------------------
-# Fitur Utama:
-# - Integrasi langsung dengan John the Ripper (wordlist, incremental).
-# - zip2john → file hash → jalankan john → john --show.
-# - Resume session otomatis (--restore) jika ada.
-# - Logging ke file.
-# - UI baru: ui.panels + ui.dashboard + utils.proc.run_with_dashboard.
-# - Modularisasi via utils.john_ops & utils.proc.
-# ------------------------------------------------------------------
+import os, time, subprocess
+from rich.console import Console
 
-import os
-import sys
-import time
-from datetime import datetime
-from typing import Optional
+from utils.io import extract_with_password
+from ui.menu import radio_grid_menu, pick_file_with_ranger
+from ui import messages as ui
 
-# === UI (baru) ===
-from ui.panels import (
-    panel_info,
-    panel_success,
-    panel_warning,
-    panel_error,
-    panel_stage,
-)
-from ui.dashboard import Dashboard
+console = Console()
 
-# === Utils (baru) ===
-from utils.john_ops import zip2john, john_show, john_cmd
-from utils.proc import run_with_dashboard
-from utils.file_ops import expand
-
-
-# --------------------------- Logger ---------------------------------
-
-def _mk_log_file(zip_file: str) -> str:
-    base = os.path.splitext(os.path.basename(zip_file))[0]
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.join(os.getcwd(), "logs", f"john_{base}_{ts}.log")
-
-class Logger:
-    def __init__(self, path: str):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        self._fh = open(path, "a", encoding="utf-8", errors="ignore")
-        self.path = path
-
-    def write(self, msg: str):
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self._fh.write(f"[{ts}] {msg}\n")
-        self._fh.flush()
-
-    def close(self):
-        try:
-            self._fh.close()
-        except Exception:
-            pass
-
-
-# --------------------------- Engine ---------------------------------
-
-def brute_john(
-    zip_file: str,
-    wordlist: Optional[str] = None,
-    john_path: str = "~/john/run",
-    live: bool = True,
-    resume: bool = True,
-) -> dict:
-    """
-    Brute-force ZIP dengan John the Ripper:
-        - Tahap 1: zip2john untuk konversi ZIP → hash.
-        - Tahap 2: john (wordlist / incremental).
-        - Tahap 3: john --show untuk ambil hasil password.
-    """
-    t0 = time.time()
-
-    panel_stage(
-        f"[bold magenta]BRUTEZIPER – John Engine[/]\n"
-        f"[white]📦 ZIP      :[/] {os.path.basename(zip_file)}\n"
-        + (f"[white]📝 Wordlist :[/] {os.path.basename(wordlist)}\n" if wordlist else "")
-        + f"[white]📂 John dir :[/] {expand(john_path)}",
-        color="magenta",
-    )
-
-    # logging
-    log_path = _mk_log_file(zip_file)
-    logger = Logger(log_path)
-    logger.write(f"START engine=john zip={zip_file} wordlist={wordlist} john_path={john_path}")
-
-    # step 1: zip2john
-    hash_file = zip2john(zip_file, john_path, logger=logger)
-    if not hash_file:
-        msg = "Gagal membuat hash dengan zip2john."
-        panel_error(msg)
-        logger.write(f"ERROR {msg}")
-        logger.close()
-        return _ret("", 0.0, False, log_path, msg)
-
-    logger.write(f"HASH file={hash_file}")
-
-    # step 2: jalankan john
-    cmd = john_cmd(hash_file, john_path, wordlist=wordlist, resume=resume)
-    ret_code = run_with_dashboard(cmd, cwd=expand(john_path), logger=logger, label="John the Ripper")
-
-    if ret_code != 0:
-        panel_warning(f"John exited dengan code {ret_code} (mungkin normal).")
-
-    # step 3: ambil hasil dengan john --show
-    password = john_show(hash_file, john_path, logger=logger)
-    elapsed = time.time() - t0
-
-    if password:
-        panel_success(f"Password ditemukan oleh John: {password}")
-        logger.write(f"FOUND pw='{password}' elapsed={elapsed:.2f}s")
+# =========================
+# Helper: jalankan command
+# =========================
+def run_command(cmd, cwd=None, live=False):
+    if live:
+        proc = subprocess.Popen(cmd, shell=True, cwd=cwd)
+        proc.wait()
+        return "", "", proc.returncode
     else:
-        panel_warning("Password tidak ditemukan oleh John.")
-        logger.write(f"NOTFOUND elapsed={elapsed:.2f}s")
+        res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
+        return res.stdout.strip(), res.stderr.strip(), res.returncode
 
-    logger.close()
-    return _ret(password or "", elapsed, True, log_path, None)
+# =========================
+# Ambil password dari hasil John
+# =========================
+def _john_show_password(john_bin, hash_abs, fmt, john_path):
+    out, _, _ = run_command(f"{john_bin} --show --format={fmt} '{hash_abs}'", cwd=john_path)
+    if not out:
+        return None, ""
+    for line in out.splitlines():
+        if ":" in line and not line.strip().lower().startswith("1 password hash") \
+            and not line.strip().lower().startswith("no password hashes"):
+            parts = line.split(":")
+            if len(parts) >= 2:
+                return parts[1].strip(), out
+    return None, out
 
+# =========================
+# Engine John
+# =========================
+def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False, resume=False):
+    """
+    Jalankan brute force dengan John the Ripper.
+    Bisa pakai wordlist atau incremental mode.
+    Return dict {password, elapsed, mode, format}
+    """
+    john_path = os.path.expanduser(john_path)
+    if not os.path.exists(zip_file):
+        ui.error(f"❌ File ZIP tidak ditemukan: {zip_file}")
+        return None
+    if not os.path.exists(john_path):
+        ui.error(f"❌ Folder John the Ripper tidak ditemukan: {john_path}")
+        return None
 
-# --------------------------- Return Helper --------------------------
+    zip2john_bin = os.path.join(john_path, "zip2john")
+    john_bin = os.path.join(john_path, "john")
 
-def _ret(
-    password: str,
-    elapsed: float,
-    used_john: bool,
-    log_path: str,
-    error: Optional[str],
-) -> dict:
-    return {
-        "password": password or None,
-        "elapsed": elapsed,
-        "engine": "john",
-        "used_john": used_john,
-        "log_file": log_path,
-        "error": error,
-    }
+    basename = os.path.splitext(os.path.basename(zip_file))[0]
+    hash_file = f"john_{basename}.txt"
+    hash_abs = os.path.abspath(hash_file)
 
+    ui.attention("🔑 Generate hash dengan zip2john", title="JOHN ENGINE")
+    out, err, code = run_command(f"{zip2john_bin} '{zip_file}'")
+    if code != 0 or not out:
+        ui.error(f"Gagal generate hash:\n{err or '(output kosong)'}")
+        return None
+    with open(hash_file, "w") as f:
+        f.write(out)
 
-# --------------------------- CLI Quick Test -------------------------
+    tried = []
+    start = time.time()
+    found_pw = None
+    chosen_fmt = None
 
-if __name__ == "__main__":
-    import argparse
+    for fmt in ["ZIP", "PKZIP"]:
+        tried.append(fmt)
+        if wordlist:
+            ui.warning(f"🚀 Jalankan John ({fmt}) dengan wordlist {os.path.basename(wordlist)}")
+            run_command(f"{john_bin} --format={fmt} --wordlist='{os.path.abspath(wordlist)}' '{hash_abs}'",
+                        cwd=john_path, live=live)
+        else:
+            ui.warning(f"🚀 Jalankan John ({fmt}) dengan mode incremental")
+            run_command(f"{john_bin} --format={fmt} --incremental '{hash_abs}'",
+                        cwd=john_path, live=live)
 
-    parser = argparse.ArgumentParser(description="BRUTEZIPER – John Engine v11 (Advanced)")
-    parser.add_argument("zip", help="Path ke file .zip terenkripsi")
-    parser.add_argument("--wordlist", help="Path ke file wordlist (opsional)")
-    parser.add_argument("--john", default="~/john/run", help="Path ke direktori john (default: ~/john/run)")
-    parser.add_argument("--no-resume", action="store_true", help="Nonaktifkan resume")
-    args = parser.parse_args()
+        pw, _raw = _john_show_password(john_bin, hash_abs, fmt, john_path)
+        if pw:
+            elapsed = time.time() - start
+            chosen_fmt = fmt
+            found_pw = pw
+            ui.password_found(pw, elapsed, source="John")
+            try:
+                outdir = extract_with_password(zip_file, pw)
+                ui.success(f"✔ Semua file diekstrak ke: {outdir}", title="JOHN ENGINE")
+            except Exception as e:
+                ui.warning(f"⚠ Password benar tapi ekstraksi gagal:\n{e}")
+            try:
+                os.remove(hash_abs)
+            except Exception as e:
+                ui.warning(f"⚠ Gagal hapus hash file: {e}")
+            return {
+                "password": found_pw,
+                "elapsed": elapsed,
+                "mode": "wordlist" if wordlist else "incremental",
+                "format": chosen_fmt
+            }
 
-    res = brute_john(
-        args.zip,
-        wordlist=args.wordlist,
-        john_path=args.john,
-        live=True,
-        resume=(not args.no_resume),
+    # kalau sampai sini: gagal
+    elapsed = time.time() - start
+    ui.error(
+        f"❌ Password tidak ditemukan oleh John\n"
+        f"[white]Format yang dicoba: {', '.join(tried)}[/]\n"
+        f"[cyan]⏳ Total waktu: {elapsed:.2f} detik[/]\n"
+        f"[cyan]Tips: coba wordlist berbeda atau jalankan manual John untuk verifikasi[/]",
+        title="JOHN ENGINE"
     )
-    print(res)
+
+    try:
+        os.remove(hash_abs)
+    except Exception as e:
+        ui.warning(f"⚠ Gagal hapus hash file: {e}")
+
+    # === Retry menu ===
+    mode = radio_grid_menu("Mau Coba Lagi?", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
+    if mode == "wordlist":
+        new_wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if new_wordlist and new_wordlist.lower().endswith(".txt"):
+            return brute_john(zip_file, wordlist=new_wordlist, john_path=john_path, live=live)
+    elif mode == "incremental":
+        return brute_john(zip_file, wordlist=None, john_path=john_path, live=live)
+    else:
+        ui.warning("⚠️ Dibatalkan oleh user.")
+        return {
+            "password": None,
+            "elapsed": elapsed,
+            "mode": "exit",
+            "format": tried
+        }
