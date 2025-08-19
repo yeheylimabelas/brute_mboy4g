@@ -99,12 +99,7 @@ class PythonEngine(BaseEngine):
         from rich.live import Live
         from ui.dashboard import render_dashboard
 
-        with Live(render_dashboard(
-            os.path.basename(self.zip_file),
-            os.path.basename(self.wordlist),
-            self.processes, start_at, remaining_total,
-            tested, in_flight, start_time
-        ), refresh_per_second=max(4, int(1/self.ui_refresh))) as live:
+        with Live("", refresh_per_second=max(4, int(1/self.ui_refresh))) as live:
 
             from concurrent.futures import ProcessPoolExecutor
             pending = set()

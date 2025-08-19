@@ -4,6 +4,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.align import Align
+from rich import box
+
 
 console = Console()
 
@@ -39,6 +41,26 @@ def render_dashboard(zip_file, wordlist, processes, start_at, remaining_total,
     table.add_row("📈 Status", status)
 
     return Panel(Align.center(table), border_style="cyan", title="Live Dashboard", subtitle="Gunakan untuk file Anda sendiri")
+
+def show_summary(result: dict):
+    """Tampilkan ringkasan hasil brute force setelah engine selesai."""
+    table = Table(box=box.SIMPLE, expand=True)
+    table.add_column("Field", style="cyan", no_wrap=True)
+    table.add_column("Value", style="white")
+
+    table.add_row("Engine", result.get("engine", "-"))
+    table.add_row("Mode", result.get("mode", "-"))
+    table.add_row("Status", result.get("status", "-"))
+    if result.get("password"):
+        table.add_row("Password", f"[green]{result['password']}[/]")
+    else:
+        table.add_row("Password", "[red]Not Found[/]")
+    if result.get("elapsed") is not None:
+        table.add_row("Elapsed", f"{result['elapsed']:.2f} s")
+    if result.get("rate") is not None:
+        table.add_row("Rate", f"{result['rate']:,.0f} pw/s")
+
+    console.print(Panel(table, title="🔍 Brute Summary", border_style="blue"))
 
 # === Optional: decorator supaya output konsisten panelized ===
 def panelize(color="cyan", title="INFO"):
