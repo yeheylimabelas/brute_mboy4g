@@ -460,8 +460,8 @@ def brute_python_fast_v11(
                     found_pw = res.password
                     found_event.set()
 
-            # update dashboard (completed)
-            dash.update(completed=min(tested, total_candidates) if total_candidates is not None else tested)
+            # update dashboard (tested)
+            dash.update(tested=min(tested, total_candidates) if total_candidates is not None else tested)
 
             # adaptive tuning setiap ADJUST_WIN_SEC
             now = _now()
