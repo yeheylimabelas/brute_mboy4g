@@ -148,19 +148,26 @@ class PythonEngine(BaseEngine):
                             stop_event.set()
                             tested += clen
                             status = "FOUND ✅"
-                            live.update(render_dashboard(
-                                os.path.basename(self.zip_file),
-                                os.path.basename(self.wordlist),
-                                self.processes, start_at, remaining_total,
-                                tested, in_flight, start_time,
-                                status=status
-                            ))
+
+                            live.update(render_dashboard(...))
+
                             clear_resume(self.zip_file, self.wordlist)
-                            threading.Thread(target=_async_extract, args=(found_pw,), daemon=True).start()
+
+                            # matikan live dulu sebelum ekstraksi
+                            live.stop()  
+
+                            # langsung ekstraksi (tanpa thread)
+                            try:
+                                outdir = extract_with_password(self.zip_file, found_pw)
+                                ui.success(f"✔ Semua file diekstrak ke: {outdir}")
+                            except Exception as e:
+                                ui.warning(f"⚠ Password benar tapi ekstraksi gagal:\n{e}")
+
                             for pf in pending: pf.cancel()
                             pending.clear()
                             in_flight = 0
                             break
+
                         else:
                             tested += val
                             in_flight -= 1
@@ -200,6 +207,27 @@ class PythonEngine(BaseEngine):
         dashboard.show_summary(result)
         return result
 
+    def run_sample(self, limit=5000):
+        """Jalankan brute dengan batas limit kata (benchmark mode)."""
+        # load sebagian kecil wordlist
+        with open(self.wordlist_path, "r", errors="ignore") as f:
+            candidates = [line.strip() for _, line in zip(range(limit), f) if line.strip()]
+        if not candidates:
+            return {"status": "empty"}
+        # brute sederhana (tanpa multiprocess penuh)
+        start = time.time()
+        found = None
+        for pw in candidates:
+            if self.try_password(pw):
+                found = pw
+                break
+        elapsed = time.time() - start
+        return {
+            "status": "ok" if found else "not_found",
+            "password": found,
+            "elapsed": elapsed,
+            "tested": len(candidates),
+        }
 
 # wrapper supaya kompatibel
 def brute_python_fast(zip_file_path, wordlist_path,

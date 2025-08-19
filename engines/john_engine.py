@@ -146,6 +146,61 @@ class JohnEngine(BaseEngine):
 
         return result
 
+    def run_sample(self, limit=5000):
+        """
+        Jalankan benchmark kecil dengan John.
+        Ambil sebagian wordlist, jalankan John, ukur waktu.
+        """
+        import tempfile, shutil
+
+        # ambil subset wordlist
+        tmp_wordlist = None
+        try:
+            tmp_wordlist = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt")
+            with open(self.wordlist_path, "r", errors="ignore") as src:
+                for i, line in enumerate(src):
+                    if i >= limit:
+                        break
+                    tmp_wordlist.write(line)
+            tmp_wordlist.close()
+
+            start = time.time()
+            # panggil zip2john + john normal
+            hash_file = tempfile.NamedTemporaryFile(delete=False, suffix=".hash")
+            hash_file.close()
+
+            subprocess.run(
+                ["zip2john", self.zip_file_path],
+                stdout=open(hash_file.name, "w"),
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+
+            cmd = ["john", "--wordlist=" + tmp_wordlist.name, hash_file.name]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            elapsed = time.time() - start
+
+            # cek potfile untuk hasil
+            pot_file = os.path.expanduser("~/.john/john.pot")
+            found = None
+            if os.path.exists(pot_file):
+                with open(pot_file, "r", errors="ignore") as pot:
+                    for line in pot:
+                        if self.zip_file_path in line:
+                            found = line.strip().split(":")[-1]
+                            break
+
+            return {
+                "status": "ok" if found else "not_found",
+                "password": found,
+                "elapsed": elapsed,
+                "tested": limit,
+            }
+
+        finally:
+            if tmp_wordlist:
+                os.unlink(tmp_wordlist.name)
 
 # wrapper lama supaya kompatibel
 def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False, resume=False):

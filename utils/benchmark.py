@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from typing import Callable, Dict, Any, Optional, List
-from .analyzer import get_zip_metadata
+from analyzer import get_zip_metadata
 
 
 def dry_run(zip_file: str, wordlist: Optional[str] = None) -> Dict[str, Any]:

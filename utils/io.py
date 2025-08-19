@@ -57,15 +57,24 @@ def clear_resume(zip_path, wordlist_path):
 # Ekstraksi
 # =========================
 def extract_with_password(zip_file_path, password):
-    # nama folder hasil ekstrakan
     base = os.path.splitext(os.path.basename(zip_file_path))[0]
-    out_dir = os.path.join(os.getcwd(), "OutputExtract", base)
+    out_root = os.path.join(os.getcwd(), "OutputExtract")
+    os.makedirs(out_root, exist_ok=True)
 
-    # cek kalau sudah ada
+    out_dir = os.path.join(out_root, base)
+
+    # stop live dashboard dulu (opsional, tergantung cara kita panggil)
+    # kalau dashboard masih running → harus dipastikan .stop() dipanggil
+
     if os.path.exists(out_dir) and os.listdir(out_dir):
         ui.warning(f"📂 Folder output sudah ada: {out_dir}")
-        action = radio_grid_menu("Folder sudah ada, pilih tindakan:",
-                                ["Timpa", "Ganti Nama", "Exit!"], cols=2).lower()
+
+        # ⛔ di sini radio_grid_menu aman dipanggil
+        action = radio_grid_menu(
+            "Folder sudah ada, pilih tindakan:",
+            ["Timpa", "Ganti Nama", "Exit!"],
+            cols=2
+        ).lower()
 
         if action.startswith("exit"):
             ui.info("❌ Ekstraksi dibatalkan user.")
@@ -82,7 +91,6 @@ def extract_with_password(zip_file_path, password):
             ui.attention("⚠ Folder lama akan ditimpa.")
 
     os.makedirs(out_dir, exist_ok=True)
-
     with pyzipper.AESZipFile(zip_file_path) as zf:
         zf.extractall(path=out_dir, pwd=password.encode("utf-8"))
 
