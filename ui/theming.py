@@ -1,12 +1,12 @@
-# ui/theming.py
+# ui/theming.py V2
 """
-Simple theming registry untuk konsistensi warna UI.
-`messages.py` bisa membaca warna dari sini kalau ingin.
+Theming registry v2 dengan style yang lebih antimainstream.
 """
 
 from __future__ import annotations
 
 THEMES = {
+    # 🍧 Default aman
     "default": {
         "info": "cyan",
         "bold_info": "bold cyan",
@@ -22,6 +22,8 @@ THEMES = {
         "text": "white",
         "status": "green",
     },
+
+    # 👾 Hacker vibes
     "matrix": {
         "info": "bright_green",
         "bold_info": "bold bright_green",
@@ -37,10 +39,12 @@ THEMES = {
         "text": "bright_green",
         "status": "bright_green",
     },
-    "neon": {
-        "info": "bright_cyan",
-        "bold_info": "bold bright_cyan",
-        "attention": "bright_magenta",
+
+    # 🌌 Neon retro (80s cyberpunk)
+    "cyberpunk": {
+        "info": "bright_magenta",
+        "bold_info": "bold bright_magenta",
+        "attention": "bright_cyan",
         "white": "bright_white",
         "blue": "bright_blue",
         "success": "bright_green",
@@ -50,7 +54,58 @@ THEMES = {
         "title": "bold bright_cyan",
         "subtitle": "dim bright_magenta",
         "text": "bright_white",
+        "status": "bright_magenta",
+    },
+
+    # 🕶 Dracula style
+    "dracula": {
+        "info": "bright_cyan",
+        "bold_info": "bold bright_cyan",
+        "attention": "bright_magenta",
+        "white": "bright_white",
+        "blue": "bright_blue",
+        "success": "bright_green",
+        "warning": "bright_yellow",
+        "error": "bright_red",
+        "panel": "bright_magenta",
+        "title": "bold bright_white",
+        "subtitle": "dim bright_cyan",
+        "text": "bright_white",
         "status": "bright_green",
+    },
+
+    # 🌅 Sunset vibes
+    "sunset": {
+        "info": "bright_yellow",
+        "bold_info": "bold bright_yellow",
+        "attention": "bright_red",
+        "white": "bright_white",
+        "blue": "bright_magenta",
+        "success": "bright_red",
+        "warning": "bright_yellow",
+        "error": "bright_black",
+        "panel": "bright_red",
+        "title": "bold bright_yellow",
+        "subtitle": "dim bright_magenta",
+        "text": "bright_white",
+        "status": "bright_red",
+    },
+
+    # 🌊 Ocean deep
+    "ocean": {
+        "info": "bright_cyan",
+        "bold_info": "bold bright_cyan",
+        "attention": "blue",
+        "white": "bright_white",
+        "blue": "bright_blue",
+        "success": "cyan",
+        "warning": "bright_yellow",
+        "error": "bright_red",
+        "panel": "blue",
+        "title": "bold bright_cyan",
+        "subtitle": "dim blue",
+        "text": "bright_white",
+        "status": "cyan",
     },
 }
 
@@ -63,7 +118,7 @@ def set_theme(name: str):
     _current_theme = name
 
 def get_style(key: str) -> str:
-    """ambil warna dari theme aktif, fallback ke white kalau tidak ada"""
+    """Ambil warna dari theme aktif, fallback ke white kalau tidak ada"""
     return THEMES.get(_current_theme, THEMES["default"]).get(key, "white")
 
 def get_current_theme() -> str:
