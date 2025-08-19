@@ -1,6 +1,7 @@
 # utils/analyzer.py
 from __future__ import annotations
 import os
+import pyzipper
 import zipfile
 from typing import Dict, Any
 
@@ -50,3 +51,24 @@ def get_zip_metadata(zip_file: str) -> Dict[str, Any]:
             "total_uncompressed": int(total_uncompressed),
             "total_compressed": int(total_compressed),
         }
+
+def analyze_zip(zip_file_path: str) -> dict:
+    meta = {
+        "file": os.path.basename(zip_file_path),   # ✅ tambahkan nama file
+        "encrypted": False,
+        "files": [],
+        "compression": {},
+        "comment": None,
+    }
+    try:
+        with pyzipper.AESZipFile(zip_file_path) as zf:
+            meta["comment"] = zf.comment.decode("utf-8", errors="ignore") or None
+            for info in zf.infolist():
+                meta["files"].append(info.filename)
+                if info.flag_bits & 0x1:
+                    meta["encrypted"] = True
+                comp = info.compress_type
+                meta["compression"][comp] = meta["compression"].get(comp, 0) + 1
+    except Exception as e:
+        meta["error"] = str(e)
+    return meta
