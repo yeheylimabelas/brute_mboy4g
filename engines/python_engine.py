@@ -45,24 +45,27 @@ class PythonEngine(BaseEngine):
     def __init__(self, zip_file, wordlist,
                 processes=4, start_at=0,
                 adaptive_chunk=1000, resume=True,
-                ui_refresh=0.5, checkpoint_every=50_000):   # ⬅️ tambahin default
-        super().__init__("python", zip_file, wordlist)
+                ui_refresh=0.5, checkpoint_every=50_000):
 
+        super().__init__("python", zip_file)   # ✅ cukup 2 argumen
+
+        self.wordlist = wordlist              # ✅ simpan sendiri
         self.processes = processes
         self.start_at = start_at
         self.adaptive_chunk = adaptive_chunk
         self.resume = resume
         self.ui_refresh = ui_refresh
-        self.checkpoint_every = checkpoint_every   # ✅ sekarang aman
+        self.checkpoint_every = checkpoint_every
 
         # tracking progress
         self.remaining_total = 0
         self.tested = 0
         self.in_flight = 0
 
-        # 🔑 fix disini
+        # events
         self.stop_event = threading.Event()
         self.found_event = threading.Event()
+
 
 
     def run(self):
