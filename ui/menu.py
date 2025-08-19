@@ -76,7 +76,6 @@ def pick_file_with_ranger(prompt_title="Pilih file"):
         ui.error("❌ Ranger tidak ditemukan.")
         return None
 
-    console.print(f"[{get_style('warning')}]📑 Ranger selesai. Cek file pilihan...[/]")
     if os.path.exists(tmpfile):
         with open(tmpfile, "r") as f:
             path = f.readline().strip()

@@ -259,7 +259,7 @@ def brute_python_fast(zip_file_path, wordlist_path,
                       ui_refresh=0.3, checkpoint_every=50_000):
     eng = PythonEngine(zip_file_path, wordlist_path,
                        processes=processes,
-                       start_chunk=start_chunk,
+                       start_at=start_chunk,
                        resume=resume,
                        ui_refresh=ui_refresh,
                        checkpoint_every=checkpoint_every)
