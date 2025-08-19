@@ -83,7 +83,6 @@ def pick_file_with_ranger(prompt_title="Pilih file"):
         try: os.remove(tmpfile)
         except Exception: pass
         if path:
-            console.print(f"[{get_style('success')}]✅ Terpilih: {path}[/]")
             return path
         else:
             console.print(f"[{get_style('error')}]⚠ Tidak ada yang dipilih.[/]")

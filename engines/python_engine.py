@@ -42,15 +42,24 @@ class PythonEngine(BaseEngine):
     name = "python"
     mode = "wordlist"
 
-    def __init__(self, zip_file: str, wordlist: str,
-                 processes=None, start_chunk=1000, resume=True,
-                 ui_refresh=0.3, checkpoint_every=50_000, **kwargs):
-        super().__init__(zip_file, wordlist, **kwargs)
-        self.processes = processes or max(1, mp.cpu_count() - 1)
-        self.start_chunk = start_chunk
+    def __init__(self, zip_file, wordlist, processes=4, start_at=0,
+                 adaptive_chunk=1000, resume=True, ui_refresh=0.5):
+        super().__init__("python", zip_file, wordlist)
+
+        self.processes = processes
+        self.start_at = start_at
+        self.adaptive_chunk = adaptive_chunk
         self.resume = resume
         self.ui_refresh = ui_refresh
-        self.checkpoint_every = checkpoint_every
+
+        # tracking progress
+        self.remaining_total = 0
+        self.tested = 0
+        self.in_flight = 0
+
+        # 🔑 fix disini
+        self.stop_event = threading.Event()
+        self.found_event = threading.Event()
 
     def run(self):
         if not os.path.exists(self.zip_file):
