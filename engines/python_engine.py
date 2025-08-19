@@ -14,7 +14,6 @@ from utils.io import (
     load_resume, save_resume, clear_resume,
     extract_with_password
 )
-import multiprocessing
 
 # worker untuk satu chunk
 def _worker_try_chunk(zip_path, pw_chunk, stop_event):
@@ -40,26 +39,18 @@ def _worker_try_chunk(zip_path, pw_chunk, stop_event):
 
 
 class PythonEngine(BaseEngine):
-    def __init__(self, zip_file, wordlist, processes=None, start_at=0,
-                 adaptive_chunk=1000, resume=True, ui_refresh=0.5,
-                 checkpoint_every=50_000):
-        super().__init__("python", zip_file, wordlist)
+    name = "python"
+    mode = "wordlist"
 
-        # Default worker kalau None → jumlah CPU
-        self.processes = processes or multiprocessing.cpu_count()
-        self.start_at = start_at
-        self.adaptive_chunk = adaptive_chunk
+    def __init__(self, zip_file: str, wordlist: str,
+                 processes=None, start_chunk=1000, resume=True,
+                 ui_refresh=0.3, checkpoint_every=50_000, **kwargs):
+        super().__init__(zip_file, wordlist, **kwargs)
+        self.processes = processes or max(1, mp.cpu_count() - 1)
+        self.start_chunk = start_chunk
         self.resume = resume
         self.ui_refresh = ui_refresh
         self.checkpoint_every = checkpoint_every
-
-        # tracking progress
-        self.remaining_total = 0
-        self.tested = 0
-        self.in_flight = 0
-
-        self.stop_event = threading.Event()
-        self.found_event = threading.Event()
 
     def run(self):
         if not os.path.exists(self.zip_file):
@@ -109,21 +100,6 @@ class PythonEngine(BaseEngine):
         from ui.dashboard import render_dashboard
 
         with Live("", refresh_per_second=max(4, int(1/self.ui_refresh))) as live:
-            while not self.stop_event.is_set():
-                elapsed = time.time() - start_time
-                live.update(render_dashboard(
-                    self.zip_file,
-                    os.path.basename(self.wordlist),
-                    self.processes,
-                    self.start_at,
-                    self.remaining_total,
-                    self.tested,
-                    self.in_flight,
-                    start_time,
-                    status="Running" if not self.found_event.is_set() else "FOUND ✅"
-                ))
-                time.sleep(self.ui_refresh)
-
 
             from concurrent.futures import ProcessPoolExecutor
             pending = set()
@@ -173,7 +149,13 @@ class PythonEngine(BaseEngine):
                             tested += clen
                             status = "FOUND ✅"
 
-                            live.update(render_dashboard(...))
+                            live.update(render_dashboard(
+                                os.path.basename(self.zip_file),
+                                os.path.basename(self.wordlist),
+                                self.processes, start_at, remaining_total,
+                                tested, in_flight, start_time,
+                                status=status
+                            ))
 
                             clear_resume(self.zip_file, self.wordlist)
 
@@ -259,7 +241,7 @@ def brute_python_fast(zip_file_path, wordlist_path,
                       ui_refresh=0.3, checkpoint_every=50_000):
     eng = PythonEngine(zip_file_path, wordlist_path,
                        processes=processes,
-                       start_at=start_chunk,
+                       start_chunk=start_chunk,
                        resume=resume,
                        ui_refresh=ui_refresh,
                        checkpoint_every=checkpoint_every)
