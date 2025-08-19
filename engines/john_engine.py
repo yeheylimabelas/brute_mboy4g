@@ -3,10 +3,10 @@ import os, time, subprocess
 from typing import Optional, Dict, Any, List
 
 from .base import BaseEngine
-from bruteziper.ui import messages as ui
-from bruteziper.ui import dashboard
-from bruteziper.ui.menu import radio_grid_menu, pick_file_with_ranger
-from bruteziper.utils.io import extract_with_password
+from ui import messages as ui
+from ui import dashboard
+from ui.menu import radio_grid_menu, pick_file_with_ranger
+from utils.io import extract_with_password
 
 
 # helper run

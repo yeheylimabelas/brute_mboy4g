@@ -1,4 +1,4 @@
-# bruteziper/ui/theming.py
+# ui/theming.py
 """
 Simple theming registry untuk konsistensi warna UI.
 `messages.py` bisa membaca warna dari sini kalau ingin.

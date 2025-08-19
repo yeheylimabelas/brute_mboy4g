@@ -1,19 +1,19 @@
-# bruteziper/engines/hybrid_engine.py
+# engines/hybrid_engine.py
 from __future__ import annotations
 import time
 from typing import Optional, Dict, Any
 
 from .base import BaseEngine
-from bruteziper.ui import messages as ui
-from bruteziper.ui import dashboard
+from ui import messages as ui
+from ui import dashboard
 
 try:
-    from bruteziper.engines.python_engine import brute_python_fast
+    from engines.python_engine import brute_python_fast
 except Exception:  # pragma: no cover
     brute_python_fast = None
 
 try:
-    from bruteziper.engines.john_engine import brute_john
+    from engines.john_engine import brute_john
 except Exception:  # pragma: no cover
     brute_john = None
 

@@ -1,4 +1,4 @@
-# bruteziper/engines/python_engine.py
+# engines/python_engine.py
 from __future__ import annotations
 import os, time, threading
 import multiprocessing as mp
@@ -7,9 +7,9 @@ from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 import pyzipper
 
 from .base import BaseEngine
-from bruteziper.ui import messages as ui
-from bruteziper.ui import dashboard
-from bruteziper.utils.io import (
+from ui import messages as ui
+from ui import dashboard
+from utils.io import (
     count_lines_fast, wordlist_stream,
     load_resume, save_resume, clear_resume,
     extract_with_password

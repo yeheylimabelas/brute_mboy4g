@@ -1,4 +1,4 @@
-# bruteziper/utils/benchmark.py
+# utils/benchmark.py
 from __future__ import annotations
 import os
 import time

@@ -1,4 +1,4 @@
-# bruteziper/utils/progress.py
+# utils/progress.py
 from __future__ import annotations
 import time
 from multiprocessing import Value, Lock
