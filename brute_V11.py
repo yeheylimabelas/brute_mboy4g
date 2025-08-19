@@ -9,7 +9,9 @@ from rich.panel import Panel
 from engines.python_engine import brute_python_fast
 from engines.john_engine import brute_john
 from engines.hybrid_engine import brute_hybrid
+from utils.io import auto_select_engine
 from ui.menu import radio_grid_menu, pick_file_with_ranger
+from ui import messages as ui
 
 console = Console()
 
@@ -18,25 +20,23 @@ console = Console()
 # =========================
 def banner():
     os.system("cls" if os.name == "nt" else "clear")
-    console.print(Panel(
+    ui.info(
         "[bold magenta]BRUTEZIPER v11[/]\n"
         "By [bold bright_blue]MBOY4G[/]\n"
         "As [bold bright_blue]Ryven Novyr Asmadeus[/]\n"
         "Mode Python · John · John Live · Hybrid",
-        title="[cyan]SCRIPT[/]", border_style="magenta"
-    ))
+        title="[cyan]SCRIPT")
 
 # =========================
 # CLI Usage
 # =========================
 def usage():
-    console.print(Panel(
+    ui.blue(
         "📌 Penggunaan:\n"
         "  python main.py                (mode interaktif)\n"
         "  python main.py --engine python <zip> <wordlist>\n"
         "  python main.py --engine john   <zip> [wordlist] [--live] [--john-path <dir>]\n"
-        "  python main.py --engine hybrid <zip> <wordlist>\n",
-        border_style="blue"))
+        "  python main.py --engine hybrid <zip> <wordlist>\n")
 
 # =========================
 # CLI Flow
@@ -71,6 +71,18 @@ def cli_flow():
             usage(); sys.exit(1)
         zip_file = sys.argv[3]; wordlist = sys.argv[4]
         brute_hybrid(zip_file, wordlist)
+
+    elif engine == "auto":
+        if len(sys.argv) < 5:
+            usage(); sys.exit(1)
+        zip_file = sys.argv[3]; wordlist = sys.argv[4]
+        choice = auto_select_engine(zip_file, wordlist)
+        ui.info(f"🤖 Auto-select memilih engine: {choice.upper()}")
+        if choice == "python":
+            brute_python_fast(zip_file, wordlist)
+        else:
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
+
     else:
         usage(); sys.exit(1)
 
@@ -79,7 +91,8 @@ def cli_flow():
 # =========================
 def interactive_flow():
     engine = radio_grid_menu("Pilih Engine Untuk Brute",
-        ["Python", "John", "John Live", "Hybrid", "Exit!"], cols=2).lower()
+        ["Python", "John", "John Live", "Hybrid", "Auto", "Exit!"], cols=2).lower()
+
 
     if engine.startswith("exit!"):
         console.print("[yellow]⚠️ Program dibatalkan oleh user.[/]")
@@ -88,12 +101,12 @@ def interactive_flow():
     # pilih ZIP
     zip_file = pick_file_with_ranger("Pilih file ZIP")
     if not zip_file or not zip_file.lower().endswith(".zip") or not os.path.isfile(zip_file):
-        console.print(Panel("[red]❌ File ZIP tidak valid/dipilih.[/]", border_style="red")); sys.exit(1)
+        ui.error("❌ File ZIP tidak valid/dipilih."); sys.exit(1)
 
     if engine == "python":
         wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
         if not wordlist or not wordlist.lower().endswith(".txt"):
-            console.print(Panel("[red]❌ Wordlist harus file .txt yang valid.[/]", border_style="red")); sys.exit(1)
+            ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
         brute_python_fast(zip_file, wordlist)
 
     elif engine == "john":
@@ -104,7 +117,7 @@ def interactive_flow():
         if mode == "wordlist":
             wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
             if not wordlist or not wordlist.lower().endswith(".txt"):
-                console.print(Panel("[red]❌ Wordlist harus file .txt yang valid.[/]", border_style="red")); sys.exit(1)
+                ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
             brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
         else:
             brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False)
@@ -117,7 +130,7 @@ def interactive_flow():
         if mode == "wordlist":
             wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
             if not wordlist or not wordlist.lower().endswith(".txt"):
-                console.print(Panel("[red]❌ Wordlist harus file .txt yang valid.[/]", border_style="red")); sys.exit(1)
+                ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
             brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=True)
         else:
             brute_john(zip_file, wordlist=None, john_path="~/john/run", live=True)
@@ -125,9 +138,21 @@ def interactive_flow():
     elif engine == "hybrid":
         wordlist = pick_file_with_ranger("Pilih file wordlist (.txt) [untuk tahap Python]")
         if not wordlist or not wordlist.lower().endswith(".txt"):
-            console.print(Panel("[red]❌ Wordlist harus file .txt yang valid.[/]", border_style="red"))
+            ui.error("❌ Wordlist harus file .txt yang valid.")
             sys.exit(1)
         brute_hybrid(zip_file, wordlist)
+
+    elif engine == "auto":
+        wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if not wordlist or not wordlist.lower().endswith(".txt"):
+            ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+        choice = auto_select_engine(zip_file, wordlist)
+        ui.info(f"🤖 Auto-select memilih engine: {choice.upper()}")
+        if choice == "python":
+            brute_python_fast(zip_file, wordlist)
+        else:
+            brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
+
 
 # =========================
 # MAIN

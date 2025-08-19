@@ -6,11 +6,17 @@ console = Console()
 def info(msg, title="INFO"):
     console.print(Panel(msg, border_style="magenta", title=title))
 
+def bold_info(msg, title="BOLD_INFO"):
+    console.print(Panel(msg, border_style="bold magenta", title=title))
+
 def attention(msg, title="ATTENTION"):
     console.print(Panel(msg, border_style="cyan", title=title))
 
 def white(msg, title="WHITE"):
     console.print(Panel(msg, border_style="white", title=title))
+
+def blue(msg, title="BLUE"):
+    console.print(Panel(msg, border_style="blue", title=title))
 
 def success(msg, title="SUCCESS"):
     console.print(Panel(msg, border_style="green", title=title))

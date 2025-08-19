@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import psutil
 import pyzipper
 from datetime import timedelta
 from rich.console import Console
@@ -84,3 +85,26 @@ def wordlist_stream(path, start_index=0):
             pw = line.strip()
             if pw:
                 yield pw
+
+# =========================
+# Auto select engine
+# =========================
+def auto_select_engine(zip_file, wordlist, force=None):
+    """
+    Pilih engine otomatis berdasarkan ukuran wordlist dan RAM.
+    force: "python" atau "john" untuk override.
+    """
+    if force in ["python", "john"]:
+        return force
+
+    size = os.path.getsize(wordlist)
+    ram = psutil.virtual_memory().total if psutil else None
+
+    # heuristik sederhana
+    if size <= 5 * 10**6:   # wordlist < 5MB
+        return "python"
+    if ram and ram < 1 * 1024**3:   # RAM < 1GB
+        return "john"
+
+    # default: wordlist besar → john, sisanya python
+    return "john" if size > 500_000 * 10 else "python"
