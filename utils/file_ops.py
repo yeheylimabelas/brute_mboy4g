@@ -4,6 +4,7 @@
 # - File picker pakai ranger
 # - Cek ekstensi (ZIP / TXT)
 # - Path expand (absolute + tilde)
+# - Hitung ukuran file (dalam format human readable)
 # ----------------------------------------------------
 
 import os
@@ -25,6 +26,20 @@ def is_txt(path: str) -> bool:
     return path.lower().endswith(".txt")
 
 
+def file_size(path: str) -> str:
+    """Kembalikan ukuran file dalam format human readable (KB, MB, GB)."""
+    try:
+        size = os.path.getsize(path)
+    except Exception:
+        return "0 B"
+
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024:
+            return f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} PB"
+
+
 def pick_file_with_ranger(prompt: str = "Pilih file") -> str:
     """
     Launch ranger sebagai file picker.
@@ -33,7 +48,6 @@ def pick_file_with_ranger(prompt: str = "Pilih file") -> str:
     """
     print(f"\n📂 {prompt}")
     try:
-        # --choosefile = output ke file
         tmpfile = "/tmp/ranger_choice"
         result = subprocess.run(
             ["ranger", f"--choosefile={tmpfile}"],
