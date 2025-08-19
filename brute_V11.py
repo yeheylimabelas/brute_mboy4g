@@ -11,7 +11,7 @@ from engines.john_engine import brute_john
 from engines.hybrid_engine import brute_hybrid
 from utils.io import auto_select_engine
 from ui.menu import radio_grid_menu, pick_file_with_ranger
-from ui.theming import set_theme, _THEMES
+from ui.theming import set_theme, THEMES
 from ui import messages as ui
 from ui.theming import get_style
 
@@ -103,7 +103,7 @@ def interactive_flow():
 
         if engine == "theme":
             # tampilkan daftar theme
-            themes = list(_THEMES.keys())
+            themes = list(THEMES.keys())
             chosen = radio_grid_menu("Pilih Theme", themes, cols=2).lower()
             try:
                 set_theme(chosen)
