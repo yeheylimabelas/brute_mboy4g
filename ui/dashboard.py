@@ -49,6 +49,7 @@ class Dashboard:
             TextColumn("CPU {task.fields[cpu]}%"),
             TextColumn("RAM {task.fields[ram]}%"),
             TextColumn("🌡 {task.fields[temp]}°C"),
+            TextColumn("{task.fields[status]}"),
         ])
 
         self._progress = Progress(*cols)
@@ -59,22 +60,32 @@ class Dashboard:
             cpu=0,
             ram=0,
             temp=0,
+            status="Running",
         )
         return self
 
-    def update(self, advance: int = 0):
+    def update(self, advance: int = 0, completed=None, total=None, rate=None, status=None):
         if not self._progress:
             return
         cpu = int(get_cpu_percent())
         ram = int(get_ram_usage())
         temp = int(get_temp() or 0)
 
+        fields = dict(cpu=cpu, ram=ram, temp=temp)
+        if status is not None:
+            fields["status"] = status
+
+        kwargs = {}
+        if completed is not None:
+            kwargs["completed"] = completed
+        if total is not None:
+            kwargs["total"] = total
+
         self._progress.update(
             self._task,
             advance=advance,
-            cpu=cpu,
-            ram=ram,
-            temp=temp,
+            **kwargs,
+            **fields,
         )
         time.sleep(0.05)  # biar animasi smooth
 
