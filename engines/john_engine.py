@@ -1,8 +1,8 @@
 import os, time, subprocess
 from rich.console import Console
-from rich.panel import Panel
 
 from utils.io import extract_with_password
+from ui.menu import radio_grid_menu, pick_file_with_ranger
 from ui import messages as ui
 
 console = Console()
@@ -37,7 +37,7 @@ def _john_show_password(john_bin, hash_abs, fmt, john_path):
 # =========================
 # Engine John
 # =========================
-def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False):
+def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False, resume=False):
     """
     Jalankan brute force dengan John the Ripper.
     Bisa pakai wordlist atau incremental mode.
@@ -58,7 +58,7 @@ def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False):
     hash_file = f"john_{basename}.txt"
     hash_abs = os.path.abspath(hash_file)
 
-    ui.attention(f"🔑 Generate hash dengan zip2john")
+    ui.attention("🔑 Generate hash dengan zip2john", title="JOHN ENGINE")
     out, err, code = run_command(f"{zip2john_bin} '{zip_file}'")
     if code != 0 or not out:
         ui.error(f"Gagal generate hash:\n{err or '(output kosong)'}")
@@ -74,11 +74,11 @@ def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False):
     for fmt in ["ZIP", "PKZIP"]:
         tried.append(fmt)
         if wordlist:
-            console.print(Panel(f"[yellow]🚀 Jalankan John ({fmt}) dengan wordlist {os.path.basename(wordlist)}[/]", border_style="yellow"))
+            ui.warning(f"🚀 Jalankan John ({fmt}) dengan wordlist {os.path.basename(wordlist)}")
             run_command(f"{john_bin} --format={fmt} --wordlist='{os.path.abspath(wordlist)}' '{hash_abs}'",
                         cwd=john_path, live=live)
         else:
-            console.print(Panel(f"[yellow]🚀 Jalankan John ({fmt}) dengan mode incremental[/]", border_style="yellow"))
+            ui.warning(f"🚀 Jalankan John ({fmt}) dengan mode incremental")
             run_command(f"{john_bin} --format={fmt} --incremental '{hash_abs}'",
                         cwd=john_path, live=live)
 
@@ -87,18 +87,16 @@ def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False):
             elapsed = time.time() - start
             chosen_fmt = fmt
             found_pw = pw
-            console.print(Panel(f"[green]✅ Password ditemukan: {pw}[/]\n📦 File: {os.path.basename(zip_file)}", border_style="green"))
-            console.print(Panel(f"[cyan]⏳ Waktu: {elapsed:.2f} detik[/]", border_style="cyan"))
-            # ekstraksi sinkron
+            ui.password_found(pw, elapsed, source="John")
             try:
                 outdir = extract_with_password(zip_file, pw)
-                console.print(Panel(f"[green]✔ Semua file diekstrak ke: {outdir}[/]", border_style="green"))
+                ui.success(f"✔ Semua file diekstrak ke: {outdir}", title="JOHN ENGINE")
             except Exception as e:
-                console.print(Panel(f"[yellow]⚠ Password benar tapi ekstraksi gagal:\n{e}[/]", border_style="yellow"))
+                ui.warning(f"⚠ Password benar tapi ekstraksi gagal:\n{e}")
             try:
                 os.remove(hash_abs)
             except Exception as e:
-                console.print(f"[yellow]⚠ Gagal hapus hash file: {e}[/]")
+                ui.warning(f"⚠ Gagal hapus hash file: {e}")
             return {
                 "password": found_pw,
                 "elapsed": elapsed,
@@ -119,11 +117,21 @@ def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False):
     try:
         os.remove(hash_abs)
     except Exception as e:
-        console.print(f"[yellow]⚠ Gagal hapus hash file: {e}[/]")
+        ui.warning(f"⚠ Gagal hapus hash file: {e}")
 
-    return {
-        "password": None,
-        "elapsed": elapsed,
-        "mode": "wordlist" if wordlist else "incremental",
-        "format": tried
-    }
+    # === Retry menu ===
+    mode = radio_grid_menu("Mau Coba Lagi?", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
+    if mode == "wordlist":
+        new_wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
+        if new_wordlist and new_wordlist.lower().endswith(".txt"):
+            return brute_john(zip_file, wordlist=new_wordlist, john_path=john_path, live=live)
+    elif mode == "incremental":
+        return brute_john(zip_file, wordlist=None, john_path=john_path, live=live)
+    else:
+        ui.warning("⚠️ Dibatalkan oleh user.")
+        return {
+            "password": None,
+            "elapsed": elapsed,
+            "mode": "exit",
+            "format": tried
+        }
