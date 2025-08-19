@@ -1,7 +1,6 @@
 # utils/sysinfo.py
 # -------------------------------------------------------------------
 # Ambil informasi sistem (CPU, RAM, Temperatur) secara cross-platform.
-# Khusus Termux/Android mungkin terbatas (temp kadang None).
 # -------------------------------------------------------------------
 
 import os
@@ -41,3 +40,15 @@ def count_cpu() -> int:
         return psutil.cpu_count(logical=True) or 1
     except Exception:
         return 1
+
+# Ringkasan info sistem
+def get_sysinfo() -> dict:
+    """
+    Ringkasan info sistem: CPU, RAM, Temp, Cores.
+    """
+    return {
+        "cpu_percent": get_cpu_percent(0.1),
+        "ram_percent": get_ram_usage(),
+        "temp": get_temp(),
+        "cores": count_cpu(),
+    }
