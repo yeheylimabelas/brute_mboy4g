@@ -65,7 +65,7 @@ def extract_with_password(zip_file_path, password):
     if os.path.exists(out_dir) and os.listdir(out_dir):
         ui.warning(f"📂 Folder output sudah ada: {out_dir}")
         action = radio_grid_menu("Folder sudah ada, pilih tindakan:",
-                                ["Timpa", "Ganti Nama", "Exit!"], cols=3).lower()
+                                ["Timpa", "Ganti Nama", "Exit!"], cols=2).lower()
 
         if action.startswith("exit"):
             ui.info("❌ Ekstraksi dibatalkan user.")

@@ -42,7 +42,7 @@ def radio_grid_menu(title, options, default=0, cols=2, border_style="magenta"):
             table.add_row(*cells)
         return Panel(table, title=title, border_style=border_style)
 
-    with Live(render(), refresh_per_second=24, console=console) as live:
+    with Live(render(), refresh_per_second=24, console=console, transient=True) as live:
         while True:
             key = readchar.readkey()
             if key == readchar.key.RIGHT:
