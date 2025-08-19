@@ -1,85 +1,83 @@
 # ui/dashboard.py
-# BRUTEZIPER v11 – Dashboard
-# -------------------------------------------------------------
-# Komponen Rich Progress untuk memantau brute force secara live.
-# - Progress bar
-# - Rate
-# - ETA
-# - CPU/RAM usage
-# -------------------------------------------------------------
+# -------------------------------------------------------------------
+# Dashboard untuk progress worker & monitoring CPU/RAM
+# Kompatibel dengan semua versi rich (fallback RateColumn).
+# -------------------------------------------------------------------
 
 import time
-from typing import Optional
-
-from rich.console import Console
 from rich.progress import (
     Progress,
-    SpinnerColumn,
     TextColumn,
     BarColumn,
-    MofNCompleteColumn,
-    RateColumn,
     TimeElapsedColumn,
     TimeRemainingColumn,
+    SpinnerColumn,
 )
 
+# coba import RateColumn
 try:
-    import psutil
+    from rich.progress import RateColumn
+    _has_rate = True
 except ImportError:
-    psutil = None
+    class RateColumn:  # dummy → tampil kosong
+        def __init__(self, *a, **kw): pass
+        def __rich_console__(self, *a, **kw): return []
+    _has_rate = False
 
-console = Console()
+from utils.sysinfo import get_cpu_percent, get_ram_usage, get_temp
+
 
 class Dashboard:
-    def __init__(self, total: Optional[int] = None, label: str = "Bruteforce"):
-        self.progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[bold]{task.fields[label]}[/]"),
-            BarColumn(),
-            MofNCompleteColumn() if total is not None else TextColumn(""),
-            RateColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn() if total is not None else TextColumn(""),
-            TextColumn(" | CPU {task.fields[cpu]}% RAM {task.fields[ram]}%"),
-            transient=False,
-            console=console,
-        )
-        self.task_id = self.progress.add_task(
-            "brute",
-            total=total or 0,
-            label=label,
-            cpu="--",
-            ram="--"
-        )
-        self.start = time.time()
+    def __init__(self, total: int | None, label: str = "Progress"):
+        self.total = total
+        self.label = label
+        self._progress = None
+        self._task = None
 
     def __enter__(self):
-        self.progress.__enter__()
+        cols = [
+            SpinnerColumn(),
+            TextColumn(f"[cyan]{self.label}[/]"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}" if self.total else "{task.completed}"),
+        ]
+        if _has_rate:
+            cols.append(RateColumn())
+        cols.extend([
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            TextColumn("CPU {task.fields[cpu]}%"),
+            TextColumn("RAM {task.fields[ram]}%"),
+            TextColumn("🌡 {task.fields[temp]}°C"),
+        ])
+
+        self._progress = Progress(*cols)
+        self._progress.start()
+        self._task = self._progress.add_task(
+            f"[cyan]{self.label}[/]",
+            total=self.total,
+            cpu=0,
+            ram=0,
+            temp=0,
+        )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.progress.__exit__(exc_type, exc_val, exc_tb)
+    def update(self, advance: int = 0):
+        if not self._progress:
+            return
+        cpu = int(get_cpu_percent())
+        ram = int(get_ram_usage())
+        temp = int(get_temp() or 0)
 
-    def update(self, completed: Optional[int] = None):
-        # Ambil CPU/RAM
-        cpu_p, ram_p = "--", "--"
-        if psutil:
-            try:
-                cpu_p = f"{psutil.cpu_percent(interval=0):.0f}"
-                ram_p = f"{psutil.virtual_memory().percent:.0f}"
-            except Exception:
-                pass
-        self.progress.update(
-            self.task_id,
-            completed=completed if completed is not None else None,
-            cpu=cpu_p,
-            ram=ram_p
+        self._progress.update(
+            self._task,
+            advance=advance,
+            cpu=cpu,
+            ram=ram,
+            temp=temp,
         )
+        time.sleep(0.05)  # biar animasi smooth
 
-    def advance(self, n: int = 1):
-        self.update(completed=self.progress.tasks[self.task_id].completed + n)
-
-    def stop(self):
-        elapsed = time.time() - self.start
-        self.progress.stop()
-        return elapsed
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._progress:
+            self._progress.stop()
