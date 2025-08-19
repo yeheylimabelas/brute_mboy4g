@@ -29,3 +29,23 @@ _As Ryven Novyr Asmadeus_
 ---
 
 ## 📦 Struktur Project
+
+```bash
+bruteziper/
+├── engines/
+│   ├── python_engine.py     # Engine brute-force Python (multi-core, resume)
+│   ├── john_engine.py       # Engine John the Ripper (wordlist & incremental)
+│   └── hybrid_engine.py     # Hybrid (Python → fallback John)
+│
+├── ui/
+│   ├── dashboard.py         # Live dashboard & summary
+│   ├── menu.py              # Menu interaktif (radio grid, theme picker)
+│   ├── messages.py          # Pesan status dengan theming
+│   └── theming.py           # Definisi & pengaturan tema
+│
+├── utils/
+│   └── io.py                # IO helper (resume, auto-select engine, extract)
+│
+├── main.py                  # Entry point utama (interactive_flow)
+└── README.md                # Dokumentasi project
+
