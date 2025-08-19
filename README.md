@@ -101,6 +101,9 @@ python brute_V11.py --engine hybrid --zip file.zip --wordlist wordlist.txt
 
 # Auto engine
 python brute_V11.py --engine auto --zip file.zip --wordlist big.txt
+```
+
+---
 
 ## 📂 Struktur Proyek
 
@@ -119,6 +122,8 @@ bruteziper/
 │   └── menu.py           # Menu interaktif (radio grid, ranger)
 ├── utils/
 │   ├── io.py             # Resume, extract, file ops
+│   ├── analyzer.py       # Analyzer ZIP
+│   └── benchmark.py      # Benchmark performa
 └── requirements.txt
 ```
 
