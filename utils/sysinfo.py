@@ -1,47 +1,43 @@
 # utils/sysinfo.py
-# -------------------------------------------------------------
-# Utility functions untuk ambil info sistem
-# - CPU usage
-# - RAM usage
-# - Temperatur (jika tersedia)
-# -------------------------------------------------------------
+# -------------------------------------------------------------------
+# Ambil informasi sistem (CPU, RAM, Temperatur) secara cross-platform.
+# Khusus Termux/Android mungkin terbatas (temp kadang None).
+# -------------------------------------------------------------------
 
+import os
 import psutil
 
-def get_sysinfo() -> dict:
-    """Return dict info CPU, RAM, suhu"""
+# CPU %
+def get_cpu_percent(interval: float = 0.1) -> float:
     try:
-        cpu_percent = psutil.cpu_percent(interval=None)
-        ram_percent = psutil.virtual_memory().percent
+        return psutil.cpu_percent(interval=interval)
     except Exception:
-        cpu_percent = 0.0
-        ram_percent = 0.0
+        return 0.0
 
-    temp = None
+# RAM usage %
+def get_ram_usage() -> float:
+    try:
+        return psutil.virtual_memory().percent
+    except Exception:
+        return 0.0
+
+# Temperatur (°C), fallback None kalau tidak ada
+def get_temp() -> float | None:
     try:
         temps = psutil.sensors_temperatures()
-        if temps:
-            # ambil sensor pertama
-            for name, entries in temps.items():
-                if entries:
-                    temp = entries[0].current
-                    break
+        if not temps:
+            return None
+        # ambil sensor pertama yang ada
+        for name, entries in temps.items():
+            if entries:
+                return entries[0].current
+        return None
     except Exception:
-        temp = None
+        return None
 
-    return {
-        "cpu_percent": cpu_percent,
-        "ram_percent": ram_percent,
-        "temp": temp,
-    }
-
-def format_sysinfo() -> str:
-    """Return string ringkas CPU/RAM/Suhu"""
-    info = get_sysinfo()
-    parts = [
-        f"CPU {info['cpu_percent']:.1f}%",
-        f"RAM {info['ram_percent']:.1f}%",
-    ]
-    if info["temp"] is not None:
-        parts.append(f"🌡 {info['temp']:.1f}°C")
-    return " | ".join(parts)
+# Jumlah CPU cores
+def count_cpu() -> int:
+    try:
+        return psutil.cpu_count(logical=True) or 1
+    except Exception:
+        return 1
