@@ -5,13 +5,16 @@
 import sys, os
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from engines.python_engine import brute_python_fast
 from engines.john_engine import brute_john
 from engines.hybrid_engine import brute_hybrid
 from utils.io import auto_select_engine
 from ui.menu import radio_grid_menu, pick_file_with_ranger
+from ui.theming import set_theme, THEMES
 from ui import messages as ui
+from ui.theming import get_style
 
 console = Console()
 
@@ -21,11 +24,12 @@ console = Console()
 def banner():
     os.system("cls" if os.name == "nt" else "clear")
     ui.info(
-        "[bold magenta]BRUTEZIPER v11[/]\n"
-        "By [bold bright_blue]MBOY4G[/]\n"
-        "As [bold bright_blue]Ryven Novyr Asmadeus[/]\n"
-        "Mode Python · John · John Live · Hybrid",
-        title="[cyan]SCRIPT")
+        f"[{get_style('title')}]BRUTEZIPER v11[/]\n"
+        f"By [{get_style('info')}]MBOY4G[/]\n"
+        f"As [{get_style('info')}]Ryven Novyr Asmadeus[/]\n"
+        f"Mode Python · John · John Live · Hybrid",
+        title=f"[{get_style('panel')}]SCRIPT"
+    )
 
 # =========================
 # CLI Usage
@@ -90,34 +94,53 @@ def cli_flow():
 # Interactive Flow
 # =========================
 def interactive_flow():
-    engine = radio_grid_menu("Pilih Engine Untuk Brute",
-        ["Python", "John", "John Live", "Hybrid", "Auto", "Exit!"], cols=2).lower()
+    while True:
+        engine = radio_grid_menu("Pilih Engine Untuk Brute",
+            ["Python", "John", "John Live", "Hybrid", "Auto", "Theme", "Exit!"], cols=3).lower()
 
+        if engine.startswith("exit!"):
+            ui.warning("⚠️ Program dibatalkan oleh user.")
+            sys.exit(0)
 
-    if engine.startswith("exit!"):
-        console.print("[yellow]⚠️ Program dibatalkan oleh user.[/]")
-        sys.exit(0)
+        if engine == "theme":
+            # tampilkan daftar theme
+            themes = list(THEMES.keys())
+            chosen = radio_grid_menu("Pilih Theme", themes, cols=2).lower()
+            try:
+                set_theme(chosen)
+                ui.success(f"🎨 Theme berhasil diganti ke: {chosen}")
+            except Exception as e:
+                ui.error(str(e))
+            # khusus theme → ulang lagi ke menu utama
+            continue
+
+        # kalau sampai sini, berarti engine (bukan Theme/Exit)
+        # → jalankan engine sekali, lalu keluar
+        break
 
     # pilih ZIP
     zip_file = pick_file_with_ranger("Pilih file ZIP")
     if not zip_file or not zip_file.lower().endswith(".zip") or not os.path.isfile(zip_file):
-        ui.error("❌ File ZIP tidak valid/dipilih."); sys.exit(1)
+        ui.error("❌ File ZIP tidak valid/dipilih.")
+        sys.exit(1)
 
     if engine == "python":
         wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
         if not wordlist or not wordlist.lower().endswith(".txt"):
-            ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+            ui.error("❌ Wordlist harus file .txt yang valid.")
+            sys.exit(1)
         brute_python_fast(zip_file, wordlist)
 
     elif engine == "john":
         mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
         if mode.startswith("exit!"):
-            console.print("[yellow]⚠️ Dibatalkan.[/]")
+            ui.warning("⚠️ Dibatalkan.")
             sys.exit(0)
         if mode == "wordlist":
             wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
             if not wordlist or not wordlist.lower().endswith(".txt"):
-                ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+                ui.error("❌ Wordlist harus file .txt yang valid.")
+                sys.exit(1)
             brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
         else:
             brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False)
@@ -125,12 +148,13 @@ def interactive_flow():
     elif engine == "john live":
         mode = radio_grid_menu("Mode John", ["Wordlist", "Incremental", "Exit!"], cols=2).lower()
         if mode.startswith("exit!"):
-            console.print("[yellow]⚠️ Dibatalkan.[/]")
+            ui.warning("⚠️ Dibatalkan.")
             sys.exit(0)
         if mode == "wordlist":
             wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
             if not wordlist or not wordlist.lower().endswith(".txt"):
-                ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
+                ui.error("❌ Wordlist harus file .txt yang valid.")
+                sys.exit(1)
             brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=True)
         else:
             brute_john(zip_file, wordlist=None, john_path="~/john/run", live=True)
@@ -145,14 +169,14 @@ def interactive_flow():
     elif engine == "auto":
         wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
         if not wordlist or not wordlist.lower().endswith(".txt"):
-            ui.error("❌ Wordlist harus file .txt yang valid."); sys.exit(1)
-        choice = auto_select_engine(zip_file, wordlist)
-        ui.info(f"🤖 Auto-select memilih engine: {choice.upper()}")
-        if choice == "python":
+            ui.error("❌ Wordlist harus file .txt yang valid.")
+            sys.exit(1)
+        selected = auto_select_engine(zip_file, wordlist)
+        ui.info(f"🤖 Auto-select memilih engine: {selected.upper()}")
+        if selected == "python":
             brute_python_fast(zip_file, wordlist)
         else:
             brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
-
 
 # =========================
 # MAIN
