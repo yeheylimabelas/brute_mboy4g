@@ -124,22 +124,31 @@ def wordlist_stream(path, start_index=0):
 # =========================
 # Auto select engine
 # =========================
-def auto_select_engine(zip_file, wordlist, force=None):
+def auto_select_engine(zip_file: str, wordlist: str) -> str:
     """
-    Pilih engine otomatis berdasarkan ukuran wordlist dan RAM.
-    force: "python" atau "john" untuk override.
+    Auto pilih engine terbaik berdasarkan ukuran wordlist & RAM.
+    - PythonEngine v12 persistent sekarang jauh lebih cepat → threshold dinaikkan.
     """
-    if force in ["python", "john"]:
-        return force
+    try:
+        size = os.path.getsize(wordlist)
+    except Exception:
+        size = 0
 
-    size = os.path.getsize(wordlist)
-    ram = psutil.virtual_memory().total if psutil else None
+    # ambil RAM
+    try:
+        ram_total = psutil.virtual_memory().total
+    except Exception:
+        ram_total = 0
 
-    # heuristik sederhana
-    if size <= 5 * 10**6:   # wordlist < 5MB
+    # Heuristik baru v12
+    if size <= 3 * 10**6:  # wordlist <= 3 MB
+        ui.info(f"🤖 Auto: memilih PythonEngine (wordlist {size/1e6:.1f} MB ≤ 50 MB)")
         return "python"
-    if ram and ram < 1 * 1024**3:   # RAM < 1GB
-        return "john"
 
-    # default: wordlist besar → john, sisanya python
-    return "john" if size > 500_000 * 10 else "python"
+    elif ram_total > 2 * 10**9:  # RAM > 2 GB
+        ui.info(f"🤖 Auto: memilih PythonEngine (RAM cukup besar: {ram_total/1e9:.1f} GB)")
+        return "python"
+
+    else:
+        ui.info(f"🤖 Auto: memilih JohnEngine (wordlist {size/1e6:.1f} MB, RAM {ram_total/1e9:.1f} GB)")
+        return "john"

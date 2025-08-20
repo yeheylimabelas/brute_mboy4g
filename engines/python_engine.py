@@ -1,10 +1,6 @@
 # engines/python_engine.py
 from __future__ import annotations
-import os, time, threading
-import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
-
-import pyzipper
+import os, time, multiprocessing as mp
 
 from .base import BaseEngine
 from ui import messages as ui
@@ -14,28 +10,7 @@ from utils.io import (
     load_resume, save_resume, clear_resume,
     extract_with_password
 )
-
-# worker untuk satu chunk
-def _worker_try_chunk(zip_path, pw_chunk, stop_event):
-    try:
-        with pyzipper.AESZipFile(zip_path) as zf:
-            names = zf.namelist()
-            if not names:
-                return ('COUNT', len(pw_chunk))
-            testfile = names[0]
-            for pw in pw_chunk:
-                if stop_event.is_set():
-                    return ('COUNT', 0)
-                try:
-                    zf.setpassword(pw.encode("utf-8"))
-                    with zf.open(testfile) as fp:
-                        fp.read(16)
-                    return ('FOUND', pw)
-                except Exception:
-                    pass
-        return ('COUNT', len(pw_chunk))
-    except Exception:
-        return ('COUNT', len(pw_chunk))
+from workers.zip_worker import worker_process  # 🚀 worker persistent
 
 
 class PythonEngine(BaseEngine):
@@ -72,132 +47,104 @@ class PythonEngine(BaseEngine):
         remaining_total = total_all - start_at
 
         ui.info(
-            f"Menjalankan Python engine\n"
-            f"Worker={self.processes}, AdaptiveChunk(start)={self.start_chunk}, Resume={'ON' if self.resume else 'OFF'}")
+            f"Menjalankan Python engine (v12 persistent)\n"
+            f"Worker={self.processes}, AdaptiveChunk(start)={self.start_chunk}, Resume={'ON' if self.resume else 'OFF'}"
+        )
 
-        # adaptive state
-        chunk_size = self.start_chunk
+        return self._run_persistent(total_all, start_at, remaining_total)
+
+    # ==================================================
+    # 🚀 MODE BARU: Persistent Worker Pool
+    # ==================================================
+    def _run_persistent(self, total_all, start_at, remaining_total):
         manager = mp.Manager()
+        task_q = manager.Queue()
+        result_q = manager.Queue()
         stop_event = manager.Event()
+
+        # start workers
+        workers = []
+        for _ in range(self.processes):
+            p = mp.Process(target=worker_process,
+                           args=(self.zip_file, task_q, result_q, stop_event))
+            p.start()
+            workers.append(p)
 
         tested = 0
         found_pw = None
         start_time = time.time()
         last_resume_save = start_at
-        in_flight = 0
-
-        # generator stream
-        stream_iter = wordlist_stream(self.wordlist, start_at)
-
-        def _async_extract(pw):
-            try:
-                outdir = extract_with_password(self.zip_file, pw)
-                ui.success(f"✔ Semua file diekstrak ke: {outdir}")
-            except Exception as e:
-                ui.warning(f"⚠ Password benar tapi ekstraksi gagal:\n{e}")
+        chunk_size = self.start_chunk
 
         from rich.live import Live
         from ui.dashboard import render_dashboard
 
+        stream_iter = wordlist_stream(self.wordlist, start_at)
+
+        # seed awal
+        for _ in range(self.processes):
+            buf = []
+            for pw in stream_iter:
+                buf.append(pw)
+                if len(buf) >= chunk_size:
+                    break
+            if buf:
+                task_q.put(buf)
+
+        status = "Running"
         with Live("", refresh_per_second=max(4, int(1/self.ui_refresh))) as live:
-
-            from concurrent.futures import ProcessPoolExecutor
-            pending = set()
-            with ProcessPoolExecutor(max_workers=self.processes) as ex:
-                def submit_one(next_chunk):
-                    nonlocal in_flight
-                    fut = ex.submit(_worker_try_chunk, self.zip_file, next_chunk, stop_event)
-                    fut._chunk_len = len(next_chunk)
-                    fut._t0 = time.time()
-                    pending.add(fut)
-                    in_flight += 1
-
-                # seed awal
-                for _ in range(self.processes):
-                    next_buf = []
-                    for pw in stream_iter:
-                        next_buf.append(pw)
-                        if len(next_buf) >= chunk_size:
-                            break
-                    if next_buf:
-                        submit_one(next_buf)
-                    else:
-                        break
-
-                status = "Running"
-                from concurrent.futures import wait, FIRST_COMPLETED
-                while pending and not stop_event.is_set():
-                    done, pending = wait(pending, timeout=self.ui_refresh, return_when=FIRST_COMPLETED)
-                    for fut in list(done):
-                        clen = getattr(fut, "_chunk_len", 0)
-                        t0 = getattr(fut, "_t0", time.time())
-                        dt = max(1e-6, time.time() - t0)
-                        try:
-                            kind, val = fut.result()
-                        except Exception:
-                            kind, val = ('COUNT', clen)
-
-                        # adaptive chunk sizing
-                        if dt < 0.4:
-                            chunk_size = min(chunk_size * 2, 100_000)
-                        elif dt > 1.0:
-                            chunk_size = max(200, chunk_size // 2)
-
-                        if kind == 'FOUND':
-                            found_pw = val
-                            stop_event.set()
-                            tested += clen
-                            status = "FOUND ✅"
-
-                            live.update(render_dashboard(
-                                os.path.basename(self.zip_file),
-                                os.path.basename(self.wordlist),
-                                self.processes, start_at, remaining_total,
-                                tested, in_flight, start_time,
-                                status=status
-                            ))
-
-                            clear_resume(self.zip_file, self.wordlist)
-
-                            # matikan live dulu sebelum ekstraksi
-                            live.stop()  
-
-                            # langsung ekstraksi (tanpa thread)
-                            try:
-                                outdir = extract_with_password(self.zip_file, found_pw)
-                                ui.success(f"✔ Semua file diekstrak ke: {outdir}")
-                            except Exception as e:
-                                ui.warning(f"⚠ Password benar tapi ekstraksi gagal:\n{e}")
-
-                            for pf in pending: pf.cancel()
-                            pending.clear()
-                            in_flight = 0
-                            break
-
-                        else:
-                            tested += val
-                            in_flight -= 1
-                            if not stop_event.is_set():
-                                next_buf = []
-                                for pw in stream_iter:
-                                    next_buf.append(pw)
-                                    if len(next_buf) >= chunk_size:
-                                        break
-                                if next_buf:
-                                    submit_one(next_buf)
-
-                        if self.resume and (tested - (last_resume_save - start_at)) >= self.checkpoint_every:
-                            last_index = start_at + tested - 1
-                            save_resume(self.zip_file, self.wordlist, last_index)
-                            last_resume_save = last_index + 1
-
+            while not stop_event.is_set():
+                try:
+                    kind, val = result_q.get(timeout=self.ui_refresh)
+                except Exception:
                     live.update(render_dashboard(
                         os.path.basename(self.zip_file),
                         os.path.basename(self.wordlist),
                         self.processes, start_at, remaining_total,
-                        tested, in_flight, start_time,
-                        status=status
+                        tested, 0, start_time, status=status
                     ))
+                    continue
+
+                if kind == "FOUND":
+                    found_pw = val
+                    status = "FOUND ✅"
+                    stop_event.set()
+                    clear_resume(self.zip_file, self.wordlist)
+
+                    live.stop()
+                    try:
+                        outdir = extract_with_password(self.zip_file, found_pw)
+                        ui.success(f"✔ Semua file diekstrak ke: {outdir}")
+                    except Exception as e:
+                        ui.warning(f"⚠ Password benar tapi ekstraksi gagal:\n{e}")
+                    break
+
+                elif kind == "COUNT":
+                    tested += val
+                    # refill
+                    buf = []
+                    for pw in stream_iter:
+                        buf.append(pw)
+                        if len(buf) >= chunk_size:
+                            break
+                    if buf:
+                        task_q.put(buf)
+
+                    # simpan resume tiap sekian
+                    if self.resume and (tested - (last_resume_save - start_at)) >= self.checkpoint_every:
+                        last_index = start_at + tested - 1
+                        save_resume(self.zip_file, self.wordlist, last_index)
+                        last_resume_save = last_index + 1
+
+                elif kind == "ERROR":
+                    ui.error(f"Worker error: {val}")
+
+                live.update(render_dashboard(
+                    os.path.basename(self.zip_file),
+                    os.path.basename(self.wordlist),
+                    self.processes, start_at, remaining_total,
+                    tested, 0, start_time, status=status
+                ))
 
         elapsed = time.time() - start_time
         rate = tested / elapsed if elapsed > 0 else 0.0
@@ -207,11 +154,15 @@ class PythonEngine(BaseEngine):
             elapsed=elapsed,
             rate=rate,
             status="ok" if found_pw else "not_found",
-            mode=self.mode,
+            mode="persistent",
             extra={"tested": tested, "total": total_all}
         )
         dashboard.show_summary(result)
+
+        for p in workers:
+            p.terminate()
         return result
+
 
 # wrapper supaya kompatibel
 def brute_python_fast(zip_file_path, wordlist_path,
