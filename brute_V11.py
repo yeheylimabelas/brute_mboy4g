@@ -11,7 +11,6 @@ from engines.python_engine import brute_python_fast
 from engines.john_engine import brute_john
 from engines.hybrid_engine import brute_hybrid
 from utils.io import auto_select_engine
-from utils import benchmark
 from ui.menu import radio_grid_menu, pick_file_with_ranger
 from ui.theming import set_theme, THEMES
 from ui import messages as ui
@@ -97,15 +96,11 @@ def cli_flow():
 def interactive_flow():
     while True:
         engine = radio_grid_menu("Pilih Engine Untuk Brute",
-            ["Python", "John", "John Live", "Hybrid", "Auto", "Benchmark", "Theme", "Exit!"], cols=3).lower()
+            ["Python", "John", "John Live", "Hybrid", "Auto", "Theme", "Exit!"], cols=3).lower()
 
         if engine.startswith("exit!"):
             ui.warning("⚠️ Program dibatalkan oleh user.")
             sys.exit(0)
-
-        elif engine == "benchmark":
-            run_benchmark()
-            return
 
         if engine == "theme":
             # tampilkan daftar theme
@@ -182,43 +177,6 @@ def interactive_flow():
             brute_python_fast(zip_file, wordlist)
         else:
             brute_john(zip_file, wordlist=wordlist, john_path="~/john/run", live=False)
-
-def run_benchmark():
-    # pilih ZIP & wordlist
-    zip_file = pick_file_with_ranger("Pilih file ZIP (untuk benchmark)")
-    wordlist = pick_file_with_ranger("Pilih file wordlist (.txt)")
-
-    dry = benchmark.dry_run(zip_file, wordlist)
-    if not dry["ok"]:
-        ui.error("❌ Input tidak valid:\n" + "\n".join(dry["issues"]))
-        return
-
-    ui.info("🚀 Menjalankan benchmark kecil...")
-
-    results = []
-
-    # PythonEngine mini
-    from engines.python_engine import PythonEngine
-    py_eng = PythonEngine(zip_file, wordlist, processes=2, start_chunk=500, resume=False)
-    results.append(benchmark.benchmark_engine("PythonEngine", lambda: py_eng.run_sample(limit=5000), repeat=2))
-
-    # JohnEngine mini
-    from engines.john_engine import JohnEngine
-    john_eng = JohnEngine(zip_file, wordlist, live=False)
-    results.append(benchmark.benchmark_engine("JohnEngine", lambda: john_eng.run_sample(limit=5000), repeat=2))
-
-    # tampilkan hasil
-    table = Table(title="📊 Benchmark Results")
-    table.add_column("Engine", style="cyan")
-    table.add_column("Rata-rata (s)", style="magenta")
-    table.add_column("Status", style="green")
-
-    for r in results:
-        status = r["sample_result"].get("status", "?")
-        table.add_row(r["label"], f"{r['avg_seconds']:.2f}", status)
-
-    console.print(Panel(table, title="Benchmark Summary", border_style="blue"))
-
 
 # =========================
 # MAIN

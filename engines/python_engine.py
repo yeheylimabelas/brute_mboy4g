@@ -213,28 +213,6 @@ class PythonEngine(BaseEngine):
         dashboard.show_summary(result)
         return result
 
-    def run_sample(self, limit=5000):
-        """Jalankan brute dengan batas limit kata (benchmark mode)."""
-        # load sebagian kecil wordlist
-        with open(self.wordlist_path, "r", errors="ignore") as f:
-            candidates = [line.strip() for _, line in zip(range(limit), f) if line.strip()]
-        if not candidates:
-            return {"status": "empty"}
-        # brute sederhana (tanpa multiprocess penuh)
-        start = time.time()
-        found = None
-        for pw in candidates:
-            if self.try_password(pw):
-                found = pw
-                break
-        elapsed = time.time() - start
-        return {
-            "status": "ok" if found else "not_found",
-            "password": found,
-            "elapsed": elapsed,
-            "tested": len(candidates),
-        }
-
 # wrapper supaya kompatibel
 def brute_python_fast(zip_file_path, wordlist_path,
                       processes=None, start_chunk=1000, resume=True,
