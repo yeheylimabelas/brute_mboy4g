@@ -122,8 +122,6 @@ bruteziper/
 │   └── menu.py           # Menu interaktif (radio grid, ranger)
 ├── utils/
 │   ├── io.py             # Resume, extract, file ops
-│   ├── analyzer.py       # Analyzer ZIP
-│   └── benchmark.py      # Benchmark performa
 └── requirements.txt
 ```
 
