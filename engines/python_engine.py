@@ -10,7 +10,7 @@ from utils.io import (
     load_resume, save_resume, clear_resume,
     extract_with_password
 )
-from zip_worker import worker_process
+from .workers.zip_worker import worker_process
 
 class PythonEngine(BaseEngine):
     name = "python"
