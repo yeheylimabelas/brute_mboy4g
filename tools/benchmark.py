@@ -8,7 +8,12 @@ from engines.john_engine import brute_john
 def make_dummy_zip(zip_path: str, password: str):
     """Bikin ZIP dummy kecil dengan password tertentu"""
     import pyzipper
-    with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED) as zf:
+    with pyzipper.AESZipFile(
+        zip_path,
+        'w',
+        compression=pyzipper.ZIP_DEFLATED,
+        encryption=pyzipper.WZ_AES  # <<< ini penting
+    ) as zf:
         zf.setpassword(password.encode())
         zf.writestr("dummy.txt", "Hello from BRUTEZIPER v12!")
 
