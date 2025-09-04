@@ -146,8 +146,56 @@ class JohnEngine(BaseEngine):
 
         return result
 
-# wrapper lama supaya kompatibel
-def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False, resume=False):
-    mode = "wordlist" if wordlist else "incremental"
-    eng = JohnEngine(zip_file, wordlist, john_path=john_path, live=live, resume=resume, mode=mode)
-    return eng.run()
+def brute_john(zip_file, wordlist=None, john_path="~/john/run", live=False, resume=False, session_name=None):
+    """
+    Jalankan John the Ripper (wordlist/incremental).
+    Support resume via --session dan --restore.
+    """
+    import subprocess, shlex, os, time
+    from ui import messages as ui
+
+    john_bin = os.path.expanduser(john_path)
+    if not os.path.exists(john_bin):
+        ui.error(f"John binary tidak ditemukan di {john_bin}")
+        return None
+
+    if session_name is None:
+        session_name = os.path.splitext(os.path.basename(zip_file))[0]
+
+    start = time.time()
+    try:
+        if resume:
+            cmd = f"{john_bin}/john --restore={session_name}"
+            ui.info(f"🔄 Melanjutkan sesi JohnEngine: {session_name}")
+        else:
+            zip2john = f"{john_bin}/zip2john \"{zip_file}\" > hash.txt"
+            os.system(zip2john)
+            if wordlist:
+                cmd = f"{john_bin}/john --session={session_name} --wordlist=\"{wordlist}\" hash.txt"
+            else:
+                cmd = f"{john_bin}/john --session={session_name} --incremental hash.txt"
+
+        ui.info(f"⚙️ Menjalankan: {cmd}")
+        subprocess.run(shlex.split(cmd))
+
+        # show password
+        show_cmd = f"{john_bin}/john --show hash.txt"
+        out = subprocess.check_output(shlex.split(show_cmd)).decode(errors="ignore")
+        password = None
+        for line in out.splitlines():
+            if ":" in line:
+                password = line.split(":", 1)[1].strip()
+                break
+
+        elapsed = time.time() - start
+        return {
+            "password": password,
+            "elapsed": elapsed,
+            "engine": "john",
+            "status": "found" if password else "not_found"
+        }
+
+    except Exception as e:
+        ui.error(str(e))
+        return None
+
